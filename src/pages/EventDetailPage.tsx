@@ -9,7 +9,7 @@ import { useEvent, useUpdateEvent, useDeleteEvent, useCreateEvent } from "../hoo
 import { useContact } from "../hooks/use-contacts";
 import { useActivityLog } from "../hooks/use-activity-log";
 import type { AmoraEvent, EventStatus, ActivityLog } from "../data";
-import { quoteLinesRepo, paymentsRepo, expensesRepo } from "../data";
+import { quoteLinesRepo, paymentsRepo, expensesRepo, eventsRepo } from "../data";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { QuotePaymentsTab } from "../components/event-tabs/QuotePaymentsTab";
@@ -86,7 +86,7 @@ export function EventDetailPage() {
 
   const handleDuplicate = async () => {
     const newName = `${event.name} (copy)`;
-    const ref = `AE-${new Date().getFullYear()}-DUP`;
+    const ref = await eventsRepo.nextReference();
     // Copy most fields, reset client/dates/payments
     const { id: _id, created_at: _ca, updated_at: _ua, ...rest } = event;
     const result = await createEvent.mutateAsync({
@@ -247,7 +247,7 @@ function EventHeader({ event, onStatusChange, showMenu, onToggleMenu, onDelete, 
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => navigate(`/events/${event.id}/edit`)} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">
+          <button onClick={() => navigate("/events", { state: { editId: event.id } })} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">
             Edit
           </button>
           <div className="relative">

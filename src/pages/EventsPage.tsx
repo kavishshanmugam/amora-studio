@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { PartyPopper, Plus, Search, CalendarDays, User, ChevronRight, List, LayoutGrid, Copy, Trash2 } from "lucide-react";
 import { useEvents, useCreateEvent, useUpdateEvent, useDeleteEvent, useNextReference } from "../hooks/use-events";
 import { useContact } from "../hooks/use-contacts";
@@ -56,11 +56,22 @@ const LEAD_SOURCES = [
 
 export function EventsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useState<"list" | "board">("list");
   const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Handle edit navigation from EventDetailPage
+  useEffect(() => {
+    const state = location.state as { editId?: string } | null;
+    if (state?.editId) {
+      setEditingId(state.editId);
+      setShowForm(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   const { data: events = [], isLoading } = useEvents();
   const createEvent = useCreateEvent();
@@ -94,7 +105,7 @@ export function EventsPage() {
   const handleCreate = async (data: EventFormData) => {
     const ref = nextRef ?? `AE-${new Date().getFullYear()}-001`;
     const folderPath = `/events/${data.start_date} ${data.name} (${ref})`;
-    await createEvent.mutateAsync({
+    const result = await createEvent.mutateAsync({
       reference: ref,
       name: data.name,
       status: "enquiry",
@@ -144,6 +155,7 @@ export function EventsPage() {
       deleted_at: null,
     });
     setShowForm(false);
+    if (result?.id) navigate(`/events/${result.id}`);
   };
 
   const handleUpdate = async (data: EventFormData) => {
@@ -232,7 +244,9 @@ export function EventsPage() {
     });
   };
 
-  const handleDelete = (id: string) => deleteEvent.mutate(id);
+  const handleDelete = (id: string) => {
+    if (confirm("Move this event to trash?")) deleteEvent.mutate(id);
+  };
 
   return (
     <div className="max-w-5xl h-full flex flex-col">
@@ -328,7 +342,7 @@ export function EventsPage() {
           </div>
         ) : (
           <PipelineBoard
-            events={events.filter((e) => !e.deleted_at)}
+            events={filtered}
             onEdit={(id) => setEditingId(id)}
             onStatusChange={(id, status) => updateEvent.mutate({ id, data: { status } })}
           />

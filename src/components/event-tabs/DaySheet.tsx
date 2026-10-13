@@ -149,8 +149,8 @@ ${times.length > 0 ? `
 ${runSheet.length > 0 ? `
 <h2>Run Sheet</h2>
 <table>
-  <tr><th style="width:60px">Time</th><th>Task</th><th style="width:100px">Who</th><th style="width:100px">Notes</th></tr>
-  ${runSheet.map((r) => `<tr><td>${esc(r.time ?? "")}</td><td>${esc(r.task ?? "")}</td><td>${esc(r.notes ?? "")}</td><td></td></tr>`).join("")}
+  <tr><th style="width:60px">Time</th><th>Task</th><th style="width:120px">Who / Notes</th></tr>
+  ${runSheet.map((r) => `<tr><td>${esc(r.time ?? "")}</td><td>${esc(r.task ?? "")}</td><td>${esc(r.notes ?? "")}</td></tr>`).join("")}
 </table>
 ` : ""}
 

@@ -112,7 +112,7 @@ export function InventoryPage() {
                   </div>
                   <ConditionBadge condition={item.condition} />
                   <span className="text-sm font-mono text-text-secondary">
-                    ${(item.hire_price_cents / 100).toFixed(0)}
+                    ${(item.hire_price_cents / 100).toFixed(2)}
                   </span>
                   <ChevronRight size={14} className="text-text-secondary/30 shrink-0" />
                 </button>

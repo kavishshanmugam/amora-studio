@@ -281,7 +281,7 @@ function formToContact(data: ContactFormData): Omit<Contact, "id" | "created_at"
     address: data.address || null,
     instagram_handle: data.instagram_handle || null,
     website: data.website || null,
-    crew_rate_cents: data.crew_rate_cents ? parseInt(data.crew_rate_cents) * 100 : null,
+    crew_rate_cents: data.crew_rate_cents ? Math.round(parseFloat(data.crew_rate_cents) * 100) : null,
     crew_rate_unit: data.crew_rate_unit || null,
     notes: data.notes || null,
     deleted_at: null,
@@ -300,7 +300,7 @@ function ContactForm({
   const [form, setForm] = useState<ContactFormData>({
     name: contact?.name ?? "",
     business_name: contact?.business_name ?? "",
-    is_client: (contact?.is_client ?? 1) === 1,
+    is_client: contact ? contact.is_client === 1 : false,
     is_supplier: contact?.is_supplier === 1,
     is_crew: contact?.is_crew === 1,
     role: contact?.role ?? "",

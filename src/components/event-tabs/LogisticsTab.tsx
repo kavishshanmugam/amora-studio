@@ -109,8 +109,7 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
             <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
               <th className="text-left py-2 font-medium w-20">Time</th>
               <th className="text-left py-2 font-medium">Task</th>
-              <th className="text-left py-2 font-medium w-32">Who</th>
-              <th className="text-left py-2 font-medium w-32">Notes</th>
+              <th className="text-left py-2 font-medium w-32">Who / Notes</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -128,10 +127,9 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
                 </td>
                 <td className="py-1.5">
                   <input value={item.notes ?? ""} onChange={(e) => updateItem.mutate({ id: item.id, data: { notes: e.target.value } })}
-                    placeholder="Who"
+                    placeholder="Who / notes"
                     className="w-full text-sm bg-transparent outline-none text-text-secondary" />
                 </td>
-                <td className="py-1.5 text-text-secondary text-xs" />
                 <td className="py-1.5">
                   <button onClick={() => deleteItem.mutate(item.id)}
                     className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">

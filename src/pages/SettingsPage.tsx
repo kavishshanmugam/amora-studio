@@ -398,8 +398,8 @@ function ReminderSettingsSection({
               </div>
               <input
                 type="text"
-                value={val}
-                onChange={(e) => onSave(r.key, e.target.value)}
+                defaultValue={val}
+                onBlur={(e) => onSave(r.key, e.target.value)}
                 className="flex-1 text-sm px-2 py-1 border border-border rounded outline-none focus:border-brand bg-transparent"
               />
               {saved === r.key && <Check size={14} className="text-success shrink-0" />}
@@ -585,21 +585,32 @@ function BackupSection() {
         const text = await file.text();
         const data = JSON.parse(text) as Record<string, Record<string, unknown>[]>;
         const db = await getDb();
+        const ALLOWED_TABLES = new Set([
+          "contacts", "venues", "events", "catalogue_items", "inventory_items",
+          "quote_lines", "payments", "expenses", "checklist_items", "checklist_templates",
+          "reminders", "settings", "event_contacts", "styling_items", "run_sheet_items",
+          "images", "vision_links", "instagram_posts", "hashtag_sets", "activity_log",
+        ]);
 
-        for (const [table, rows] of Object.entries(data)) {
-          if (!rows.length) continue;
-          // Clear existing
-          await db.execute(`DELETE FROM ${table}`);
-          // Insert rows
-          for (const row of rows) {
-            const keys = Object.keys(row);
-            const placeholders = keys.map(() => "?").join(", ");
-            const values = keys.map((k) => row[k]);
-            await db.execute(
-              `INSERT INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`,
-              values as unknown[]
-            );
+        await db.execute("BEGIN TRANSACTION");
+        try {
+          for (const [table, rows] of Object.entries(data)) {
+            if (!ALLOWED_TABLES.has(table) || !rows.length) continue;
+            await db.execute(`DELETE FROM ${table}`);
+            for (const row of rows) {
+              const keys = Object.keys(row).filter((k) => /^[a-z_]+$/.test(k));
+              const placeholders = keys.map(() => "?").join(", ");
+              const values = keys.map((k) => row[k]);
+              await db.execute(
+                `INSERT INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`,
+                values as unknown[]
+              );
+            }
           }
+          await db.execute("COMMIT");
+        } catch (err) {
+          await db.execute("ROLLBACK");
+          throw err;
         }
         setStatus("Restore complete! Refresh to see changes.");
       };

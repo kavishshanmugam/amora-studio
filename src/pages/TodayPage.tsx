@@ -1,4 +1,5 @@
 import { format, isToday, isTomorrow, isBefore, addDays } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import { Sun, CalendarDays, AlertCircle, DollarSign, Clock } from "lucide-react";
 import { useEvents, useUpcomingEvents } from "../hooks/use-events";
 import { useContact } from "../hooks/use-contacts";
@@ -138,6 +139,7 @@ function DashSection({ title, icon, children }: { title: string; icon: React.Rea
 }
 
 function EventRow({ event }: { event: AmoraEvent }) {
+  const navigate = useNavigate();
   const { data: client } = useContact(event.client_id);
 
   let dateLabel = event.start_date;
@@ -149,7 +151,7 @@ function EventRow({ event }: { event: AmoraEvent }) {
   } catch { /* keep raw */ }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0">
+    <button onClick={() => navigate(`/events/${event.id}`)} className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0 w-full text-left hover:bg-highlight/20 transition-colors">
       <div className="w-1 h-8 rounded-full shrink-0" style={{ backgroundColor: event.colour || "#7A1F2B" }} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{event.name}</p>
@@ -162,20 +164,21 @@ function EventRow({ event }: { event: AmoraEvent }) {
       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[event.status] ?? "bg-bg text-text-secondary"}`}>
         {event.status.replace(/_/g, " ")}
       </span>
-    </div>
+    </button>
   );
 }
 
 function ActionRow({ event, reason }: { event: AmoraEvent; reason: string }) {
+  const navigate = useNavigate();
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0">
+    <button onClick={() => navigate(`/events/${event.id}`)} className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0 w-full text-left hover:bg-highlight/20 transition-colors">
       <AlertCircle size={16} className="text-need shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{event.name}</p>
         <p className="text-xs text-need">{reason}</p>
       </div>
       <span className="text-xs text-text-secondary font-mono">{event.reference}</span>
-    </div>
+    </button>
   );
 }
 

@@ -40,11 +40,12 @@ class EventsRepository extends BaseRepository<AmoraEvent> {
     const db = await getDb();
     const year = new Date().getFullYear();
     const prefix = `AE-${year}-`;
-    const rows = await db.select<{ cnt: number }[]>(
-      `SELECT COUNT(*) as cnt FROM events WHERE reference LIKE ?`,
+    const rows = await db.select<{ mx: string | null }[]>(
+      `SELECT MAX(reference) as mx FROM events WHERE reference LIKE ?`,
       [`${prefix}%`]
     );
-    const num = (rows[0]?.cnt ?? 0) + 1;
+    const last = rows[0]?.mx;
+    const num = last ? parseInt(last.slice(prefix.length), 10) + 1 : 1;
     return `${prefix}${String(num).padStart(3, "0")}`;
   }
 }
