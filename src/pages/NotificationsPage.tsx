@@ -1,4 +1,5 @@
 import { Bell, Check, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { remindersRepo } from "../data";
 import type { Reminder } from "../data";
@@ -45,7 +46,13 @@ export function NotificationsPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="font-display text-3xl font-bold mb-6">Notifications</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-display text-3xl font-bold">Notifications</h1>
+        {unread.length > 0 && (
+          <button onClick={() => unread.forEach((r) => markRead.mutate(r.id))}
+            className="text-xs text-brand hover:underline">Mark all read</button>
+        )}
+      </div>
 
       {!hasContent ? (
         <div className="bg-surface rounded-xl p-8 border border-border text-center">
@@ -86,14 +93,20 @@ export function NotificationsPage() {
 function ReminderRow({ reminder, onDismiss, onRead }: {
   reminder: Reminder; onDismiss: () => void; onRead?: () => void;
 }) {
+  const navigate = useNavigate();
+  const handleClick = () => {
+    if (onRead) onRead();
+    if (reminder.event_id) navigate(`/events/${reminder.event_id}`);
+  };
+
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0">
       <Bell size={16} className="text-brand shrink-0" />
-      <div className="flex-1 min-w-0">
+      <button onClick={handleClick} className="flex-1 min-w-0 text-left hover:bg-highlight/10 -m-1 p-1 rounded transition-colors">
         <p className="text-sm font-medium">{reminder.title}</p>
         {reminder.body && <p className="text-xs text-text-secondary mt-0.5">{reminder.body}</p>}
         <p className="text-[10px] text-text-secondary mt-1">{reminder.scheduled_for}</p>
-      </div>
+      </button>
       <div className="flex gap-1 shrink-0">
         {onRead && (
           <button onClick={onRead} className="p-1.5 rounded hover:bg-bg text-text-secondary hover:text-success" title="Mark read">

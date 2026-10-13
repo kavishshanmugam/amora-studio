@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, CalendarDays, User, MapPin, Phone, Mail, Instagram,
@@ -97,14 +97,12 @@ export function EventDetailPage() {
   const handleDuplicate = async () => {
     const newName = `${event.name} (copy)`;
     const ref = await eventsRepo.nextReference();
-    // Copy most fields, reset client/dates/payments
     const { id: _id, created_at: _ca, updated_at: _ua, ...rest } = event;
     const result = await createEvent.mutateAsync({
       ...rest,
       reference: ref,
       name: newName,
       status: "enquiry" as const,
-      client_id: null,
       folder_path: `/events/${event.start_date} ${newName} (${ref})`,
       price_override_cents: null,
       quote_discount_cents: 0,
@@ -123,7 +121,44 @@ export function EventDetailPage() {
       lost_reason: null,
       cancel_reason: null,
     });
-    navigate(`/events/${result.id}`);
+    // Copy quote lines, styling items, checklist (unticked)
+    if (result?.id) {
+      const { getDb } = await import("../data/db");
+      const db = await getDb();
+      const uid = () => crypto.randomUUID();
+      const now = new Date().toISOString();
+      // Quote lines
+      const qlines = await db.select<Record<string, unknown>[]>(
+        "SELECT description, quantity, unit, unit_price_cents, line_discount_cents, catalogue_item_id, position FROM quote_lines WHERE event_id = ? ORDER BY position", [event.id]
+      );
+      for (const l of qlines) {
+        await db.execute(
+          "INSERT INTO quote_lines (id, event_id, description, quantity, unit, unit_price_cents, line_discount_cents, catalogue_item_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          [uid(), result.id, l.description, l.quantity, l.unit, l.unit_price_cents, l.line_discount_cents, l.catalogue_item_id, l.position, now, now]
+        );
+      }
+      // Styling items
+      const sitems = await db.select<Record<string, unknown>[]>(
+        "SELECT name, category, quantity, source, supplier_text, cost_cents, notes, status, position FROM styling_items WHERE event_id = ? ORDER BY position", [event.id]
+      );
+      for (const s of sitems) {
+        await db.execute(
+          "INSERT INTO styling_items (id, event_id, name, category, quantity, source, supplier_text, cost_cents, notes, status, inventory_item_id, due_back_date, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,null,null,?,?,?)",
+          [uid(), result.id, s.name, s.category, s.quantity, s.source, s.supplier_text, s.cost_cents, s.notes, "need", s.position, now, now]
+        );
+      }
+      // Checklist items (all unticked)
+      const citems = await db.select<Record<string, unknown>[]>(
+        "SELECT text, section, due_date, position FROM checklist_items WHERE event_id = ? ORDER BY position", [event.id]
+      );
+      for (const c of citems) {
+        await db.execute(
+          "INSERT INTO checklist_items (id, event_id, text, is_done, due_date, completed_at, section, position, created_at, updated_at) VALUES (?,?,?,0,?,null,?,?,?,?)",
+          [uid(), result.id, c.text, c.due_date, c.section, c.position, now, now]
+        );
+      }
+      navigate(`/events/${result.id}`);
+    }
   };
 
   return (
@@ -190,6 +225,16 @@ function EventHeader({ event, onStatusChange, showMenu, onToggleMenu, onDelete, 
 }) {
   const { data: client } = useContact(event.client_id);
   const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onToggleMenu();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMenu, onToggleMenu]);
 
   return (
     <div className="bg-surface rounded-xl border border-border p-5">
@@ -260,7 +305,7 @@ function EventHeader({ event, onStatusChange, showMenu, onToggleMenu, onDelete, 
           <button onClick={() => navigate("/events", { state: { editId: event.id } })} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">
             Edit
           </button>
-          <div className="relative">
+          <div className="relative" ref={menuRef}>
             <button onClick={onToggleMenu} className="p-2 rounded-lg hover:bg-bg text-text-secondary">
               <MoreHorizontal size={16} />
             </button>
