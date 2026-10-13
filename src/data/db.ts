@@ -51,10 +51,30 @@ async function getMigrations(): Promise<Migration[]> {
   return [m001.default];
 }
 
-/** Initialize the database: run migrations, seed dev data. */
+/** Initialize the database: run migrations, seed dev data, purge old trash. */
 export async function initDatabase(): Promise<void> {
   await runMigrations();
   // Seed dev data (only inserts if events table is empty)
   const { seedDevData } = await import("./seed");
   await seedDevData();
+  // Auto-purge: permanently delete events trashed more than 30 days ago
+  await purgeOldTrash();
+}
+
+async function purgeOldTrash(): Promise<void> {
+  const db = await getDb();
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const trashed = await db.select<{ id: string }[]>(
+    "SELECT id FROM events WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    [cutoff]
+  );
+  if (trashed.length === 0) return;
+  const ids = trashed.map((e) => e.id);
+  const placeholders = ids.map(() => "?").join(",");
+  // Clean up child records then the event itself
+  for (const table of ["quote_lines", "payments", "expenses", "styling_items", "checklist_items", "run_sheet_items", "event_contacts", "images", "vision_links", "instagram_posts", "activity_log", "reminders"]) {
+    await db.execute(`DELETE FROM ${table} WHERE event_id IN (${placeholders})`, ids);
+  }
+  await db.execute(`DELETE FROM events WHERE id IN (${placeholders})`, ids);
+  console.log(`[db] Purged ${ids.length} trashed event(s) older than 30 days.`);
 }

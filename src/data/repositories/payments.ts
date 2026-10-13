@@ -18,7 +18,8 @@ class PaymentsRepository extends BaseRepository<Payment> {
   async totalForEvent(eventId: string): Promise<number> {
     const db = await getDb();
     const rows = await db.select<{ total: number }[]>(
-      "SELECT COALESCE(SUM(amount_cents), 0) as total FROM payments WHERE event_id = ?",
+      `SELECT COALESCE(SUM(CASE WHEN type = 'refund' THEN -amount_cents ELSE amount_cents END), 0) as total
+       FROM payments WHERE event_id = ?`,
       [eventId]
     );
     return rows[0]?.total ?? 0;

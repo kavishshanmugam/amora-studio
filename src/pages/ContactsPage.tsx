@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Users, Plus, Search, Phone, Mail, X, ChevronRight, MapPin } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Users, Plus, Search, Phone, Mail, X, ChevronRight, MapPin, PartyPopper } from "lucide-react";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from "../hooks/use-contacts";
 import type { Contact } from "../data";
 
@@ -230,6 +232,7 @@ export function ContactsPage() {
                 </div>
               )}
             </div>
+            <LinkedJobs contactId={selected.id} />
             <div className="flex gap-2 mt-5">
               <button
                 onClick={() => setEditingId(selected.id)}
@@ -458,5 +461,59 @@ function Checkbox({
       />
       {label}
     </label>
+  );
+}
+
+function LinkedJobs({ contactId }: { contactId: string }) {
+  const navigate = useNavigate();
+  const { data } = useQuery({
+    queryKey: ["contact-jobs", contactId],
+    queryFn: async () => {
+      const { getDb } = await import("../data");
+      const db = await getDb();
+      // Events where this contact is the client OR is linked via event_contacts
+      const rows = await db.select<{ id: string; name: string; reference: string; start_date: string; status: string }[]>(
+        `SELECT DISTINCT e.id, e.name, e.reference, e.start_date, e.status FROM events e
+         WHERE e.deleted_at IS NULL AND (
+           e.client_id = ?
+           OR e.id IN (SELECT event_id FROM event_contacts WHERE contact_id = ?)
+         )
+         ORDER BY e.start_date DESC LIMIT 20`,
+        [contactId, contactId]
+      );
+      // Aggregates
+      const agg = await db.select<{ total_booked: number; total_paid: number }[]>(
+        `SELECT
+          COALESCE((SELECT COUNT(*) FROM events WHERE client_id = ? AND deleted_at IS NULL AND status IN ('booked','planning','ready','done')), 0) as total_booked,
+          COALESCE((SELECT SUM(p.amount_cents) FROM payments p JOIN events e ON p.event_id = e.id WHERE e.client_id = ? AND e.deleted_at IS NULL), 0) as total_paid`,
+        [contactId, contactId]
+      );
+      return { jobs: rows, totalBooked: agg[0]?.total_booked ?? 0, totalPaid: agg[0]?.total_paid ?? 0 };
+    },
+  });
+
+  if (!data || data.jobs.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border">
+      <h3 className="text-xs uppercase tracking-wider text-text-secondary font-medium mb-2 flex items-center gap-1">
+        <PartyPopper size={12} /> Linked jobs
+      </h3>
+      {data.totalBooked > 0 && (
+        <div className="flex gap-3 mb-2 text-xs text-text-secondary">
+          <span>{data.totalBooked} booked</span>
+          {data.totalPaid > 0 && <span>${(data.totalPaid / 100).toLocaleString("en-AU", { minimumFractionDigits: 0 })} paid</span>}
+        </div>
+      )}
+      <div className="space-y-1">
+        {data.jobs.map((job) => (
+          <button key={job.id} onClick={() => navigate(`/events/${job.id}`)}
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg text-sm transition-colors">
+            <span className="font-medium truncate flex-1">{job.name}</span>
+            <span className="text-[10px] text-text-secondary font-mono shrink-0">{job.reference}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
