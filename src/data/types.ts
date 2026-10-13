@@ -263,7 +263,7 @@ export interface Reminder {
 
 export interface ActivityLog {
   id: string;
-  event_id: string;
+  event_id: string | null;
   timestamp: string;
   type: string | null;
   summary: string | null;

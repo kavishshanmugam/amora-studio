@@ -61,6 +61,7 @@ export function EventsPage() {
   const location = useLocation();
   const [view, setView] = useState<"list" | "board">("list");
   const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,6 +87,7 @@ export function EventsPage() {
 
   const filtered = events.filter((e) => {
     if (statusFilter !== "all" && e.status !== statusFilter) return false;
+    if (typeFilter !== "all" && e.event_type !== typeFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -301,6 +303,11 @@ export function EventsPage() {
             </button>
           ))}
         </div>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+          className="text-sm px-3 py-2 border border-border rounded-lg outline-none focus:border-brand bg-surface">
+          <option value="all">All types</option>
+          {EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
         <div className="relative flex-1 max-w-xs">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
           <input

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths,
-  subMonths, isSameMonth, isSameDay, isToday,
+  subMonths, isSameMonth, isSameDay, isToday, subDays,
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useEvents } from "../hooks/use-events";
@@ -26,6 +26,30 @@ export function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const { data: events = [] } = useEvents();
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      switch (e.key) {
+        case "ArrowLeft": setSelectedDate((d) => subDays(d, 1)); break;
+        case "ArrowRight": setSelectedDate((d) => addDays(d, 1)); break;
+        case "ArrowUp": setSelectedDate((d) => subDays(d, 7)); break;
+        case "ArrowDown": setSelectedDate((d) => addDays(d, 7)); break;
+        case "t": setSelectedDate(new Date()); setCurrentMonth(new Date()); break;
+        default: return;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Keep month in sync when selected date moves out
+  useEffect(() => {
+    if (!isSameMonth(selectedDate, currentMonth)) {
+      setCurrentMonth(startOfMonth(selectedDate));
+    }
+  }, [selectedDate, currentMonth]);
 
   // Build calendar grid (Monday-first)
   const monthStart = startOfMonth(currentMonth);
