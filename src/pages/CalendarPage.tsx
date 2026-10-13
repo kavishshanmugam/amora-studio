@@ -119,6 +119,7 @@ export function CalendarPage() {
                       }`}
                     >
                       <span className={`text-xs inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                        today && selected ? "bg-brand text-white ring-2 ring-text-primary" :
                         today ? "bg-text-primary text-white" :
                         selected ? "bg-brand text-white" : ""
                       }`}>

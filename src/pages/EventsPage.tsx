@@ -435,6 +435,8 @@ const BOARD_COLUMNS: { status: EventStatus; label: string; color: string }[] = [
   { status: "booked", label: "Booked", color: "#3E8E5E" },
   { status: "ready", label: "Ready", color: "#3E8E5E" },
   { status: "done", label: "Completed", color: "#999" },
+  { status: "lost", label: "Lost", color: "#D33" },
+  { status: "cancelled", label: "Cancelled", color: "#D33" },
 ];
 
 function PipelineBoard({ events, onEdit, onStatusChange }: {

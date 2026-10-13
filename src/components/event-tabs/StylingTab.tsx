@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Package, ShoppingBag, Store, Wrench } from "lucide-react";
+import { Plus, Trash2, Package, ShoppingBag, Store, Wrench, ClipboardCheck } from "lucide-react";
 import { useStylingItems, useCreateStylingItem, useUpdateStylingItem, useDeleteStylingItem } from "../../hooks/use-styling-items";
 import type { AmoraEvent, StylingItem } from "../../data";
 
@@ -139,6 +139,11 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
         <p className="text-sm text-text-secondary text-center py-8">No styling items yet.</p>
       )}
 
+      {/* Pack-down check — shown for done/wrap-up events */}
+      {["done", "wrap_up", "closed"].includes(event.status) && items.length > 0 && (
+        <PackDownCheck items={items} onUpdate={(id, data) => updateItem.mutate({ id, data })} />
+      )}
+
       {/* Add form */}
       {showForm && <AddStylingForm onAdd={handleAdd} onClose={() => setShowForm(false)} />}
     </div>
@@ -202,5 +207,76 @@ function AddStylingForm({ onAdd, onClose }: {
         <button type="button" onClick={onClose} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">Cancel</button>
       </div>
     </form>
+  );
+}
+
+function PackDownCheck({ items, onUpdate }: {
+  items: StylingItem[];
+  onUpdate: (id: string, data: Partial<StylingItem>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const hireItems = items.filter((i) => i.source === "supplier_hire" || i.source === "own_stock");
+  if (hireItems.length === 0) return null;
+
+  const allChecked = hireItems.every((i) => i.returned_qty != null);
+
+  return (
+    <div className="bg-surface rounded-xl border border-border overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-bg/50 transition-colors">
+        <ClipboardCheck size={16} className={allChecked ? "text-success" : "text-need"} />
+        <span className="text-sm font-medium">Pack-down check</span>
+        <span className="text-xs text-text-secondary ml-auto">
+          {allChecked ? "All checked" : `${hireItems.filter((i) => i.returned_qty != null).length}/${hireItems.length} checked`}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
+                <th className="text-left px-4 py-2 font-medium">Item</th>
+                <th className="text-center px-2 py-2 font-medium w-12">Qty</th>
+                <th className="text-center px-2 py-2 font-medium w-20">Returned</th>
+                <th className="text-center px-2 py-2 font-medium w-20">Damaged</th>
+                <th className="text-center px-2 py-2 font-medium w-20">Missing</th>
+                <th className="text-left px-2 py-2 font-medium">Damage note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hireItems.map((item) => (
+                <tr key={item.id} className="border-b border-border/50">
+                  <td className="px-4 py-2 font-medium">{item.name}</td>
+                  <td className="text-center px-2 py-2 text-text-secondary">{item.quantity}</td>
+                  <td className="px-2 py-2">
+                    <input type="number" min="0" max={item.quantity}
+                      defaultValue={item.returned_qty ?? ""}
+                      onBlur={(e) => onUpdate(item.id, { returned_qty: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full text-center text-sm bg-transparent outline-none border-b border-border focus:border-brand" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input type="number" min="0" max={item.quantity}
+                      defaultValue={item.damaged_qty ?? ""}
+                      onBlur={(e) => onUpdate(item.id, { damaged_qty: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full text-center text-sm bg-transparent outline-none border-b border-border focus:border-brand" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input type="number" min="0" max={item.quantity}
+                      defaultValue={item.missing_qty ?? ""}
+                      onBlur={(e) => onUpdate(item.id, { missing_qty: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full text-center text-sm bg-transparent outline-none border-b border-border focus:border-brand" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input defaultValue={item.damage_note ?? ""}
+                      onBlur={(e) => onUpdate(item.id, { damage_note: e.target.value || null })}
+                      placeholder="—"
+                      className="w-full text-sm bg-transparent outline-none border-b border-transparent hover:border-border focus:border-brand" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
