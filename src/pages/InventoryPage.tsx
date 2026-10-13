@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Package, Plus, Search, X, ChevronRight } from "lucide-react";
 import { useInventoryItems, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem } from "../hooks/use-inventory";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import type { InventoryItem } from "../data";
 
 const CONDITIONS = ["good", "needs_repair", "retired"] as const;
@@ -42,10 +43,14 @@ export function InventoryPage() {
     setEditingId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this item?")) return;
-    await deleteItem.mutateAsync(id);
-    if (selectedId === id) setSelectedId(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const handleDelete = (id: string) => setDeleteId(id);
+  const confirmDelete = async () => {
+    if (deleteId) {
+      await deleteItem.mutateAsync(deleteId);
+      if (selectedId === deleteId) setSelectedId(null);
+    }
+    setDeleteId(null);
   };
 
   return (
@@ -168,6 +173,8 @@ export function InventoryPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog open={deleteId !== null} title="Delete item?" message="This inventory item will be permanently deleted."
+        confirmLabel="Delete" danger onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
     </div>
   );
 }

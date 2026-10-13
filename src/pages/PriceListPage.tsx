@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DollarSign, Plus, Search, ToggleLeft, ToggleRight } from "lucide-react";
 import { useCatalogueItems, useCreateCatalogueItem, useUpdateCatalogueItem, useDeleteCatalogueItem } from "../hooks/use-catalogue";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import type { CatalogueItem } from "../data";
 
 const CATEGORIES = [
@@ -22,6 +23,7 @@ export function PriceListPage() {
   const [category, setCategory] = useState("All");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { data: items = [], isLoading } = useCatalogueItems();
   const createItem = useCreateCatalogueItem();
@@ -152,11 +154,14 @@ export function PriceListPage() {
               item={editingId ? items.find((i) => i.id === editingId) : undefined}
               onSave={editingId ? handleUpdate : handleCreate}
               onCancel={() => { setShowForm(false); setEditingId(null); }}
-              onDelete={editingId ? () => { if (confirm("Delete this item?")) { deleteItem.mutate(editingId); setEditingId(null); } } : undefined}
+              onDelete={editingId ? () => setShowDeleteConfirm(true) : undefined}
             />
           </div>
         )}
       </div>
+      <ConfirmDialog open={showDeleteConfirm} title="Delete item?" message="This price list item will be permanently deleted."
+        confirmLabel="Delete" danger onConfirm={() => { if (editingId) deleteItem.mutate(editingId); setEditingId(null); setShowDeleteConfirm(false); }}
+        onCancel={() => setShowDeleteConfirm(false)} />
     </div>
   );
 }

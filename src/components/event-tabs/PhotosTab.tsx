@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Camera, Star, Trash2, Plus, Instagram, Copy, Hash, Check, ExternalLink, Image } from "lucide-react";
 import { useImages, useCreateImage, useUpdateImage, useDeleteImage } from "../../hooks/use-images";
 import { useInstagramPost, useCreateInstagramPost, useUpdateInstagramPost } from "../../hooks/use-instagram-post";
+import { PromptDialog } from "../shared/ConfirmDialog";
 import type { AmoraEvent } from "../../data";
 import { useQuery } from "@tanstack/react-query";
 
@@ -104,6 +105,7 @@ function InstagramPlanner({ event }: { event: AmoraEvent }) {
   const updatePost = useUpdateInstagramPost();
   const { data: photos = [] } = useImages(event.id, "photo");
   const [copied, setCopied] = useState(false);
+  const [showPostUrlPrompt, setShowPostUrlPrompt] = useState(false);
 
   // Load hashtag sets from settings
   const { data: hashtagSets = [] } = useQuery({
@@ -165,18 +167,7 @@ function InstagramPlanner({ event }: { event: AmoraEvent }) {
     });
   };
 
-  const handleMarkPosted = () => {
-    const url = prompt("Post URL (optional):");
-    updatePost.mutate({
-      id: post.id,
-      eventId: event.id,
-      data: {
-        status: "posted",
-        posted_date: new Date().toISOString().slice(0, 10),
-        post_url: url || null,
-      },
-    });
-  };
+  const handleMarkPosted = () => setShowPostUrlPrompt(true);
 
   const togglePhoto = (photoId: string) => {
     const current = new Set(selectedIds);
@@ -335,6 +326,16 @@ function InstagramPlanner({ event }: { event: AmoraEvent }) {
           Posted on {post.posted_date}
         </p>
       )}
+
+      <PromptDialog open={showPostUrlPrompt} title="Post URL (optional)" placeholder="https://instagram.com/p/..."
+        onSubmit={(url) => {
+          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: new Date().toISOString().slice(0, 10), post_url: url || null } });
+          setShowPostUrlPrompt(false);
+        }}
+        onCancel={() => {
+          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: new Date().toISOString().slice(0, 10), post_url: null } });
+          setShowPostUrlPrompt(false);
+        }} />
     </div>
   );
 }

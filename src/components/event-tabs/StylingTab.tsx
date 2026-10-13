@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Package, ShoppingBag, Store, Wrench, ClipboardCheck } from "lucide-react";
 import { useStylingItems, useCreateStylingItem, useUpdateStylingItem, useDeleteStylingItem } from "../../hooks/use-styling-items";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { AmoraEvent, StylingItem } from "../../data";
 
 const STATUS_PILLS: Record<string, { label: string; color: string }> = {
@@ -29,6 +30,7 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
   const { data: items = [] } = useStylingItems(event.id);
   const [filter, setFilter] = useState<Filter>("all");
   const [showForm, setShowForm] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const createItem = useCreateStylingItem();
   const updateItem = useUpdateStylingItem();
   const deleteItem = useDeleteStylingItem();
@@ -125,7 +127,7 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => { if (confirm("Remove this styling item?")) deleteItem.mutate(item.id); }}
+                <button onClick={() => setDeleteId(item.id)}
                   className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                   <Trash2 size={12} />
                 </button>
@@ -146,6 +148,11 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
 
       {/* Add form */}
       {showForm && <AddStylingForm onAdd={handleAdd} onClose={() => setShowForm(false)} />}
+
+      <ConfirmDialog open={deleteId !== null} title="Remove styling item?"
+        confirmLabel="Remove" danger
+        onConfirm={() => { if (deleteId) deleteItem.mutate(deleteId); setDeleteId(null); }}
+        onCancel={() => setDeleteId(null)} />
     </div>
   );
 }

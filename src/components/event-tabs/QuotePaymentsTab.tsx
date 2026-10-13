@@ -7,6 +7,7 @@ import { useCatalogueItems } from "../../hooks/use-catalogue";
 import { useUpdateEvent } from "../../hooks/use-events";
 import type { AmoraEvent, QuoteLine, Payment, Expense, CatalogueItem } from "../../data";
 import { format } from "date-fns";
+import { PromptDialog } from "../shared/ConfirmDialog";
 
 const fmtCents = (c: number) => `$${(c / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`;
 
@@ -45,15 +46,13 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
     updateEvent.mutate({ id: event.id, data: { quote_sent_date: today, status: "quote_sent" } });
   };
 
+  const [showPricePrompt, setShowPricePrompt] = useState(false);
+
   const handleTogglePriceOverride = () => {
     if (event.price_override_cents != null) {
       updateEvent.mutate({ id: event.id, data: { price_override_cents: null } });
     } else {
-      const input = prompt("Flat price ($):");
-      if (input === null) return;
-      const cents = Math.round(parseFloat(input) * 100);
-      if (isNaN(cents)) return;
-      updateEvent.mutate({ id: event.id, data: { price_override_cents: cents } });
+      setShowPricePrompt(true);
     }
   };
 
@@ -110,6 +109,14 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
           </div>
         </div>
       </div>
+
+      <PromptDialog open={showPricePrompt} title="Set flat price ($)" placeholder="e.g. 1500.00"
+        onSubmit={(val) => {
+          const cents = Math.round(parseFloat(val) * 100);
+          if (!isNaN(cents) && cents > 0) updateEvent.mutate({ id: event.id, data: { price_override_cents: cents } });
+          setShowPricePrompt(false);
+        }}
+        onCancel={() => setShowPricePrompt(false)} />
     </div>
   );
 }

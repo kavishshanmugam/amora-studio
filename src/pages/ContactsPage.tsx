@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Plus, Search, Phone, Mail, X, ChevronRight, MapPin, PartyPopper } from "lucide-react";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from "../hooks/use-contacts";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import type { Contact } from "../data";
 
 type Tab = "all" | "client" | "supplier" | "crew";
@@ -50,10 +51,14 @@ export function ContactsPage() {
     setEditingId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this contact? They'll be moved to trash.")) return;
-    await deleteContact.mutateAsync(id);
-    if (selectedId === id) setSelectedId(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const handleDelete = (id: string) => setDeleteId(id);
+  const confirmDelete = async () => {
+    if (deleteId) {
+      await deleteContact.mutateAsync(deleteId);
+      if (selectedId === deleteId) setSelectedId(null);
+    }
+    setDeleteId(null);
   };
 
   return (
@@ -261,6 +266,8 @@ export function ContactsPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog open={deleteId !== null} title="Delete contact?" message="This contact will be moved to trash."
+        confirmLabel="Delete" danger onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
     </div>
   );
 }

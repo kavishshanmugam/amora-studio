@@ -6,6 +6,7 @@ import { getDb } from "../../data";
 import { uid } from "../../data/uid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { PromptDialog } from "../shared/ConfirmDialog";
 
 export function ChecklistTab({ event }: { event: AmoraEvent }) {
   const { data: items = [] } = useChecklistItems(event.id);
@@ -43,6 +44,7 @@ function ChecklistSection({ title, section, eventId, items }: {
   const inputRef = useRef<HTMLInputElement>(null);
   const [newTask, setNewTask] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
   const createItem = useCreateChecklistItem();
   const updateItem = useUpdateChecklistItem();
   const deleteItem = useDeleteChecklistItem();
@@ -96,9 +98,7 @@ function ChecklistSection({ title, section, eventId, items }: {
     setShowTemplates(false);
   };
 
-  const saveAsTemplate = async () => {
-    const name = prompt("Template name:");
-    if (!name?.trim()) return;
+  const doSaveTemplate = async (name: string) => {
     const db = await getDb();
     const tplId = uid();
     const now = new Date().toISOString();
@@ -182,7 +182,7 @@ function ChecklistSection({ title, section, eventId, items }: {
           </div>
           {items.length > 0 && (
             <button
-              onClick={saveAsTemplate}
+              onClick={() => setShowSavePrompt(true)}
               className="text-xs text-text-secondary hover:text-brand flex items-center gap-1"
             >
               <Save size={12} /> Save as template
@@ -231,6 +231,10 @@ function ChecklistSection({ title, section, eventId, items }: {
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface"
         />
       </div>
+
+      <PromptDialog open={showSavePrompt} title="Save as template" placeholder="Template name"
+        onSubmit={(name) => { doSaveTemplate(name); setShowSavePrompt(false); }}
+        onCancel={() => setShowSavePrompt(false)} />
     </div>
   );
 }

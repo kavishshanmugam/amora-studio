@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MapPin, Plus, Search, X, ChevronRight } from "lucide-react";
 import { useVenues, useCreateVenue, useUpdateVenue, useDeleteVenue } from "../hooks/use-venues";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import type { Venue } from "../data";
 import { ContactLookup } from "../components/shared/ContactLookup";
 import { useContact } from "../hooks/use-contacts";
@@ -37,10 +38,14 @@ export function VenuesPage() {
     setEditingId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this venue?")) return;
-    await deleteVenue.mutateAsync(id);
-    if (selectedId === id) setSelectedId(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const handleDelete = (id: string) => setDeleteId(id);
+  const confirmDelete = async () => {
+    if (deleteId) {
+      await deleteVenue.mutateAsync(deleteId);
+      if (selectedId === deleteId) setSelectedId(null);
+    }
+    setDeleteId(null);
   };
 
   return (
@@ -128,6 +133,8 @@ export function VenuesPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog open={deleteId !== null} title="Delete venue?" message="This venue will be permanently deleted."
+        confirmLabel="Delete" danger onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
     </div>
   );
 }
