@@ -67,15 +67,27 @@ function ChecklistSection({ title, section, eventId, items }: {
       "SELECT text, days_before_event, position FROM checklist_template_items WHERE template_id = ? ORDER BY position",
       [templateId]
     );
+    // Get event start_date for computing due dates
+    const eventRows = await db.select<{ start_date: string }[]>(
+      "SELECT start_date FROM events WHERE id = ?", [eventId]
+    );
+    const eventDate = eventRows[0]?.start_date;
+
     const existingTexts = new Set(items.map((i) => i.text.toLowerCase()));
     let pos = items.length;
     for (const task of tasks) {
-      if (existingTexts.has(task.text.toLowerCase())) continue; // skip duplicates
+      if (existingTexts.has(task.text.toLowerCase())) continue;
+      let dueDate: string | null = null;
+      if (task.days_before_event != null && eventDate) {
+        const d = new Date(eventDate + "T00:00:00");
+        d.setDate(d.getDate() - task.days_before_event);
+        dueDate = d.toISOString().slice(0, 10);
+      }
       createItem.mutate({
         event_id: eventId,
         text: task.text,
         is_done: 0,
-        due_date: null,
+        due_date: dueDate,
         completed_at: null,
         section,
         position: pos++,

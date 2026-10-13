@@ -65,9 +65,12 @@ export function EventsPage() {
 
   // Handle edit navigation from EventDetailPage
   useEffect(() => {
-    const state = location.state as { editId?: string } | null;
+    const state = location.state as { editId?: string; newEnquiry?: boolean } | null;
     if (state?.editId) {
       setEditingId(state.editId);
+      setShowForm(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    } else if (state?.newEnquiry) {
       setShowForm(true);
       navigate(location.pathname, { replace: true, state: {} });
     }

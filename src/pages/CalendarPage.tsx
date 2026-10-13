@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths,
   subMonths, isSameMonth, isSameDay, isToday,
@@ -20,6 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function CalendarPage() {
+  const navigate = useNavigate();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
@@ -59,7 +61,7 @@ export function CalendarPage() {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="font-display text-3xl font-bold">Bookings calendar</h1>
-        <button className="flex items-center gap-2 bg-text-primary text-white rounded-full py-2 px-5 text-sm font-medium hover:bg-brand transition-colors">
+        <button onClick={() => navigate("/events", { state: { newEnquiry: true } })} className="flex items-center gap-2 bg-text-primary text-white rounded-full py-2 px-5 text-sm font-medium hover:bg-brand transition-colors">
           <Plus size={16} />
           New enquiry
         </button>
@@ -174,10 +176,11 @@ export function CalendarPage() {
 }
 
 function DayPanelEvent({ event }: { event: AmoraEvent }) {
+  const navigate = useNavigate();
   const { data: client } = useContact(event.client_id);
 
   return (
-    <div className="p-3 rounded-lg border border-border">
+    <button onClick={() => navigate(`/events/${event.id}`)} className="w-full text-left p-3 rounded-lg border border-border hover:bg-highlight/20 transition-colors">
       <div className="flex items-start gap-2">
         <div className="w-1 h-full rounded-full shrink-0 mt-1" style={{ backgroundColor: event.colour || "#7A1F2B" }} />
         <div className="flex-1 min-w-0">
@@ -195,6 +198,6 @@ function DayPanelEvent({ event }: { event: AmoraEvent }) {
           </span>
         </div>
       </div>
-    </div>
+    </button>
   );
 }

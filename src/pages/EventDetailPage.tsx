@@ -70,7 +70,17 @@ export function EventDetailPage() {
   if (!event) return <div className="p-8 text-text-secondary">Event not found.</div>;
 
   const handleStatusChange = (status: EventStatus) => {
-    updateEvent.mutate({ id: event.id, data: { status } });
+    if (status === "lost") {
+      const reason = prompt("Why was this job lost?");
+      if (reason === null) return;
+      updateEvent.mutate({ id: event.id, data: { status, lost_reason: reason || null } });
+    } else if (status === "cancelled") {
+      const reason = prompt("Reason for cancellation?");
+      if (reason === null) return;
+      updateEvent.mutate({ id: event.id, data: { status, cancel_reason: reason || null } });
+    } else {
+      updateEvent.mutate({ id: event.id, data: { status } });
+    }
   };
 
   const handleDelete = () => {

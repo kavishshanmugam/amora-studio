@@ -104,7 +104,7 @@ export function Sidebar() {
           <h1 className="font-display text-lg font-bold text-brand leading-tight">
             Amora Studio
           </h1>
-          <p className="text-xs text-text-secondary">Event Planning</p>
+          <p className="text-xs text-text-secondary">Amora Events</p>
         </div>
       </div>
 

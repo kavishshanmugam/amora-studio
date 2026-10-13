@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Plus, Trash2, Search, Banknote } from "lucide-react";
+import { Plus, Trash2, Search, Banknote, Send } from "lucide-react";
 import { useQuoteLines, useQuoteSubtotal, useCreateQuoteLine, useUpdateQuoteLine, useDeleteQuoteLine } from "../../hooks/use-quote-lines";
 import { usePayments, usePaymentTotal, useCreatePayment, useDeletePayment } from "../../hooks/use-payments";
 import { useExpenses, useCreateExpense, useDeleteExpense } from "../../hooks/use-expenses";
 import { useCatalogueItems } from "../../hooks/use-catalogue";
+import { useUpdateEvent } from "../../hooks/use-events";
 import type { AmoraEvent, QuoteLine, Payment, Expense, CatalogueItem } from "../../data";
 import { format } from "date-fns";
 
@@ -31,6 +32,7 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
   const { data: payments = [] } = usePayments(event.id);
   const { data: paidTotal = 0 } = usePaymentTotal(event.id);
   const { data: expenses = [] } = useExpenses(event.id);
+  const updateEvent = useUpdateEvent();
 
   const price = event.price_override_cents ?? (subtotal - event.quote_discount_cents);
   const expenseTotal = expenses.reduce((s, e) => s + e.amount_cents, 0);
@@ -38,12 +40,38 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
   const owing = price - paidTotal;
   const status = paymentStatus(event, price, paidTotal);
 
+  const handleMarkQuoteSent = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    updateEvent.mutate({ id: event.id, data: { quote_sent_date: today, status: "quote_sent" } });
+  };
+
+  const handleTogglePriceOverride = () => {
+    if (event.price_override_cents != null) {
+      updateEvent.mutate({ id: event.id, data: { price_override_cents: null } });
+    } else {
+      const input = prompt("Flat price ($):");
+      if (input === null) return;
+      const cents = Math.round(parseFloat(input) * 100);
+      if (isNaN(cents)) return;
+      updateEvent.mutate({ id: event.id, data: { price_override_cents: cents } });
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Payment status pill */}
-      <div className="flex items-center gap-3">
+      {/* Payment status pill + actions */}
+      <div className="flex items-center gap-3 flex-wrap">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${status.color}`}>{status.label}</span>
         {price > 0 && <span className="text-sm text-text-secondary">Total: {fmtCents(price)}</span>}
+        {event.quote_sent_date && <span className="text-xs text-text-secondary">Quote sent {event.quote_sent_date}</span>}
+        {!event.quote_sent_date && lines.length > 0 && (
+          <button onClick={handleMarkQuoteSent} className="flex items-center gap-1 text-xs px-3 py-1 bg-brand text-white rounded-full hover:opacity-90">
+            <Send size={12} /> Mark quote sent
+          </button>
+        )}
+        <button onClick={handleTogglePriceOverride} className="text-xs px-3 py-1 border border-border rounded-full hover:bg-bg">
+          {event.price_override_cents != null ? `Flat price: ${fmtCents(event.price_override_cents)} ✕` : "Set flat price"}
+        </button>
       </div>
 
       {/* Quote builder */}
@@ -150,6 +178,7 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
               <th className="text-right py-2 font-medium w-16">Qty</th>
               <th className="text-right py-2 font-medium w-16">Unit</th>
               <th className="text-right py-2 font-medium w-24">Price</th>
+              <th className="text-right py-2 font-medium w-20">Disc.</th>
               <th className="text-right py-2 font-medium w-24">Total</th>
               <th className="w-8" />
             </tr>
@@ -172,6 +201,11 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
                     <input type="number" value={(line.unit_price_cents / 100).toFixed(2)}
                       onChange={(e) => updateLine.mutate({ id: line.id, data: { unit_price_cents: Math.round(parseFloat(e.target.value || "0") * 100) } })}
                       className="w-20 text-right bg-transparent outline-none" step="0.01" />
+                  </td>
+                  <td className="py-2 text-right">
+                    <input type="number" value={(line.line_discount_cents / 100).toFixed(2)}
+                      onChange={(e) => updateLine.mutate({ id: line.id, data: { line_discount_cents: Math.round(parseFloat(e.target.value || "0") * 100) } })}
+                      className="w-16 text-right bg-transparent outline-none text-text-secondary" step="0.01" />
                   </td>
                   <td className="py-2 text-right font-medium">{fmtCents(lineTotal)}</td>
                   <td className="py-2">
