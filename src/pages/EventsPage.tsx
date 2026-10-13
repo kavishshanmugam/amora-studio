@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { PartyPopper, Plus, Search, CalendarDays, User, ChevronRight, List, LayoutGrid, Copy, Trash2 } from "lucide-react";
+import { PartyPopper, Plus, Search, CalendarDays, User, ChevronRight, List, LayoutGrid, Copy, Trash2, MapPin } from "lucide-react";
 import { useEvents, useCreateEvent, useUpdateEvent, useDeleteEvent, useNextReference } from "../hooks/use-events";
 import { useContact } from "../hooks/use-contacts";
+import { useVenue } from "../hooks/use-venues";
 import type { AmoraEvent, EventStatus } from "../data";
 import { ContactLookup } from "../components/shared/ContactLookup";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import { format } from "date-fns";
 
 const STATUSES: { key: EventStatus | "all"; label: string }[] = [
@@ -251,9 +253,12 @@ export function EventsPage() {
     });
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Move this event to trash?")) deleteEvent.mutate(id);
-  };
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const handleDelete = (id: string) => setDeleteId(id);
+  const confirmDelete = useCallback(() => {
+    if (deleteId) deleteEvent.mutate(deleteId);
+    setDeleteId(null);
+  }, [deleteId, deleteEvent]);
 
   return (
     <div className="max-w-5xl h-full flex flex-col">
@@ -371,6 +376,16 @@ export function EventsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="Move to trash?"
+        message="This event will be moved to the trash."
+        confirmLabel="Move to trash"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -382,6 +397,7 @@ function EventCard({ event, onClick, onDuplicate, onDelete }: {
   onDelete: () => void;
 }) {
   const { data: client } = useContact(event.client_id);
+  const { data: venue } = useVenue(event.venue_id);
 
   let dateStr = "";
   try {
@@ -411,6 +427,12 @@ function EventCard({ event, onClick, onDuplicate, onDelete }: {
             <span className="flex items-center gap-1">
               <User size={12} />
               {client.name}
+            </span>
+          )}
+          {venue && (
+            <span className="flex items-center gap-1 truncate">
+              <MapPin size={12} />
+              {venue.name}
             </span>
           )}
           {event.event_type && <span>{event.event_type}</span>}

@@ -21,6 +21,7 @@ import { MoodboardTab } from "../components/event-tabs/MoodboardTab";
 import { PhotosTab } from "../components/event-tabs/PhotosTab";
 import { printDaySheet } from "../components/event-tabs/DaySheet";
 import { printQuote } from "../components/event-tabs/PrintQuote";
+import { ConfirmDialog, PromptDialog } from "../components/shared/ConfirmDialog";
 
 // ponytail: single-page event detail, tabs added as M6+ build out
 const EVENT_TABS = [
@@ -59,6 +60,8 @@ export function EventDetailPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<EventTab>("Overview");
   const [showMenu, setShowMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [reasonPrompt, setReasonPrompt] = useState<{ status: "lost" | "cancelled"; title: string } | null>(null);
 
   const { data: event, isLoading } = useEvent(id ?? null);
   const updateEvent = useUpdateEvent();
@@ -71,23 +74,16 @@ export function EventDetailPage() {
 
   const handleStatusChange = (status: EventStatus) => {
     if (status === "lost") {
-      const reason = prompt("Why was this job lost?");
-      if (reason === null) return;
-      updateEvent.mutate({ id: event.id, data: { status, lost_reason: reason || null } });
+      setReasonPrompt({ status: "lost", title: "Why was this job lost?" });
     } else if (status === "cancelled") {
-      const reason = prompt("Reason for cancellation?");
-      if (reason === null) return;
-      updateEvent.mutate({ id: event.id, data: { status, cancel_reason: reason || null } });
+      setReasonPrompt({ status: "cancelled", title: "Reason for cancellation?" });
     } else {
       updateEvent.mutate({ id: event.id, data: { status } });
     }
   };
 
   const handleDelete = () => {
-    if (confirm("Move this event to trash?")) {
-      deleteEvent.mutate(event.id);
-      navigate("/events");
-    }
+    setShowDeleteConfirm(true);
   };
 
   const handleMuteToggle = () => {
@@ -210,6 +206,30 @@ export function EventDetailPage() {
         {tab === "Moodboard" && <MoodboardTab event={event} />}
         {tab === "Photos & Instagram" && <PhotosTab event={event} />}
       </div>
+
+      {/* Dialogs */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Move to trash?"
+        message="This event will be moved to the trash. You can restore it within 30 days."
+        confirmLabel="Move to trash"
+        danger
+        onConfirm={() => { deleteEvent.mutate(event.id); navigate("/events"); }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+      <PromptDialog
+        open={reasonPrompt !== null}
+        title={reasonPrompt?.title ?? ""}
+        placeholder="Enter reason..."
+        onSubmit={(value) => {
+          if (reasonPrompt) {
+            const field = reasonPrompt.status === "lost" ? "lost_reason" : "cancel_reason";
+            updateEvent.mutate({ id: event.id, data: { status: reasonPrompt.status, [field]: value || null } });
+          }
+          setReasonPrompt(null);
+        }}
+        onCancel={() => setReasonPrompt(null)}
+      />
     </div>
   );
 }

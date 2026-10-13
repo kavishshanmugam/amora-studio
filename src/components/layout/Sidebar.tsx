@@ -207,7 +207,9 @@ function SearchBar() {
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
-    const search = async () => {
+    const timer = setTimeout(() => { doSearch(); }, 200);
+    return () => clearTimeout(timer);
+    async function doSearch() {
       const { getDb } = await import("../../data");
       const db = await getDb();
       const q = `%${query}%`;
@@ -232,8 +234,7 @@ function SearchBar() {
       ];
       setResults(r);
       setSelectedIdx(0);
-    };
-    search();
+    }
   }, [query]);
 
   const handleSelect = (r: SearchResult) => {
