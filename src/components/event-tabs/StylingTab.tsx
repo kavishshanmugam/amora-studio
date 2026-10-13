@@ -96,8 +96,11 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
               <div key={item.id} className="group bg-surface rounded-lg border border-border p-3 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{item.name}</p>
-                    <span className="text-xs text-text-secondary">×{item.quantity}</span>
+                    <input defaultValue={item.name} onBlur={(e) => { if (e.target.value !== item.name) updateItem.mutate({ id: item.id, data: { name: e.target.value } }); }}
+                      className="text-sm font-medium bg-transparent outline-none truncate border-b border-transparent hover:border-border focus:border-brand" />
+                    <span className="text-xs text-text-secondary shrink-0">×</span>
+                    <input type="number" defaultValue={item.quantity} onBlur={(e) => { const v = parseInt(e.target.value) || 1; if (v !== item.quantity) updateItem.mutate({ id: item.id, data: { quantity: v } }); }}
+                      className="w-8 text-xs text-text-secondary bg-transparent outline-none border-b border-transparent hover:border-border focus:border-brand" />
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_PILLS[item.status]?.color ?? "bg-bg text-text-secondary"}`}>
                       {STATUS_PILLS[item.status]?.label ?? item.status}
                     </span>
@@ -105,8 +108,10 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
                   <div className="flex items-center gap-3 mt-1 text-xs text-text-secondary">
                     <span className="flex items-center gap-1">{SOURCE_ICONS[item.source]} {SOURCE_LABELS[item.source] ?? item.source}</span>
                     {item.supplier_text && <span>{item.supplier_text}</span>}
-                    {item.cost_cents != null && item.cost_cents > 0 && <span>${(item.cost_cents / 100).toFixed(2)}</span>}
-                    {item.notes && <span className="italic truncate">{item.notes}</span>}
+                    <input defaultValue={item.cost_cents ? (item.cost_cents / 100).toFixed(2) : ""} onBlur={(e) => { const v = Math.round(parseFloat(e.target.value || "0") * 100); updateItem.mutate({ id: item.id, data: { cost_cents: v || null } }); }}
+                      placeholder="$0.00" className="w-14 bg-transparent outline-none border-b border-transparent hover:border-border focus:border-brand" />
+                    <input defaultValue={item.notes ?? ""} onBlur={(e) => { if (e.target.value !== (item.notes ?? "")) updateItem.mutate({ id: item.id, data: { notes: e.target.value || null } }); }}
+                      placeholder="notes" className="flex-1 italic bg-transparent outline-none truncate border-b border-transparent hover:border-border focus:border-brand" />
                   </div>
                 </div>
                 {/* Status toggle */}
@@ -120,7 +125,7 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => deleteItem.mutate(item.id)}
+                <button onClick={() => { if (confirm("Remove this styling item?")) deleteItem.mutate(item.id); }}
                   className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                   <Trash2 size={12} />
                 </button>

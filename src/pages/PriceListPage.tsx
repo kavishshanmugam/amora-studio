@@ -152,7 +152,7 @@ export function PriceListPage() {
               item={editingId ? items.find((i) => i.id === editingId) : undefined}
               onSave={editingId ? handleUpdate : handleCreate}
               onCancel={() => { setShowForm(false); setEditingId(null); }}
-              onDelete={editingId ? () => { deleteItem.mutate(editingId); setEditingId(null); } : undefined}
+              onDelete={editingId ? () => { if (confirm("Delete this item?")) { deleteItem.mutate(editingId); setEditingId(null); } } : undefined}
             />
           </div>
         )}
