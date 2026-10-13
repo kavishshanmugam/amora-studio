@@ -22,7 +22,7 @@ class InstagramPostsRepository extends BaseRepository<InstagramPost> {
   async findByEvent(eventId: string): Promise<InstagramPost | null> {
     const db = await getDb();
     const rows = await db.select<InstagramPost[]>(
-      "SELECT * FROM instagram_posts WHERE event_id = ? LIMIT 1",
+      "SELECT * FROM instagram_posts WHERE event_id = ? ORDER BY created_at DESC LIMIT 1",
       [eventId]
     );
     return rows[0] ?? null;

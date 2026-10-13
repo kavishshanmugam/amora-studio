@@ -160,7 +160,7 @@ export function Sidebar() {
       {/* Footer */}
       <div className="px-3 py-3 border-t border-border">
         <p className="px-3 text-[10px] text-text-secondary">
-          <kbd className="bg-bg px-1 rounded text-[9px]">Ctrl+K</kbd> to search
+          <kbd className="bg-bg px-1 rounded text-[9px]">{navigator.platform?.includes("Mac") ? "⌘K" : "Ctrl+K"}</kbd> to search
         </p>
       </div>
     </aside>
@@ -256,7 +256,7 @@ function SearchBar() {
       >
         <Search size={14} />
         <span className="flex-1 text-left">Search...</span>
-        <kbd className="text-[10px] bg-bg px-1 rounded">Ctrl+K</kbd>
+        <kbd className="text-[10px] bg-bg px-1 rounded">{navigator.platform?.includes("Mac") ? "⌘K" : "Ctrl+K"}</kbd>
       </button>
     );
   }

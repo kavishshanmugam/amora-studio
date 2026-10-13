@@ -119,6 +119,22 @@ export async function seedDevData(): Promise<void> {
       { text: "Confirm access and parking", days: 7 },
       { text: "Prep and pack", days: 1 },
     ]},
+    { name: "Engagement", event_type: "Engagement", is_wrap_up: 0, items: [
+      { text: "Confirm proposal/reveal details with client", days: 14 },
+      { text: "Order balloons and signage", days: 7 },
+      { text: "Confirm venue access", days: 5 },
+      { text: "Prep and pack all items", days: 1 },
+    ]},
+    { name: "Christening", event_type: "Christening/Baptism", is_wrap_up: 0, items: [
+      { text: "Confirm church/venue styling restrictions", days: 14 },
+      { text: "Order supplies", days: 7 },
+      { text: "Prep and pack", days: 1 },
+    ]},
+    { name: "Gender reveal", event_type: "Gender reveal", is_wrap_up: 0, items: [
+      { text: "Confirm reveal method with client", days: 14 },
+      { text: "Order balloons (check colour sealed!)", days: 7 },
+      { text: "Prep and pack", days: 1 },
+    ]},
     { name: "Wrap-up", event_type: null, is_wrap_up: 1, items: [
       { text: "Check all items returned and accounted for", days: null },
       { text: "Note any damage or missing items", days: null },

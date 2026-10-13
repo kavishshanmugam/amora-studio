@@ -30,6 +30,18 @@ export function useCreatePayment() {
   });
 }
 
+export function useUpdatePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Payment> }) =>
+      paymentsRepo.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["paid-total"] });
+    },
+  });
+}
+
 export function useDeletePayment() {
   const qc = useQueryClient();
   return useMutation({

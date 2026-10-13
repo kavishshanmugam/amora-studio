@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Search, Banknote, Send } from "lucide-react";
 import { useQuoteLines, useQuoteSubtotal, useCreateQuoteLine, useUpdateQuoteLine, useDeleteQuoteLine } from "../../hooks/use-quote-lines";
-import { usePayments, usePaymentTotal, useCreatePayment, useDeletePayment } from "../../hooks/use-payments";
+import { usePayments, usePaymentTotal, useCreatePayment, useUpdatePayment, useDeletePayment } from "../../hooks/use-payments";
 import { useExpenses, useCreateExpense, useDeleteExpense } from "../../hooks/use-expenses";
 import { useCatalogueItems } from "../../hooks/use-catalogue";
 import { useUpdateEvent } from "../../hooks/use-events";
@@ -342,6 +342,7 @@ function PaymentSection({ eventId, event, payments, price, paidTotal, owing }: {
 }) {
   const [showForm, setShowForm] = useState(false);
   const createPayment = useCreatePayment();
+  const updatePayment = useUpdatePayment();
   const deletePayment = useDeletePayment();
 
   const handleAdd = (date: string, amount: number, type: string, method: string, note: string) => {
@@ -404,10 +405,34 @@ function PaymentSection({ eventId, event, payments, price, paidTotal, owing }: {
           <tbody>
             {payments.map((p) => (
               <tr key={p.id} className="border-b border-border/50 group">
-                <td className="py-2">{p.date ? formatDate(p.date) : "—"}</td>
-                <td className="py-2 text-text-secondary">{p.type || "—"}</td>
-                <td className="py-2 text-text-secondary">{p.method || "—"}</td>
-                <td className="py-2 text-right font-medium">{fmtCents(p.amount_cents)}</td>
+                <td className="py-2">
+                  <input type="date" defaultValue={p.date ?? ""} onBlur={(e) => { if (e.target.value !== (p.date ?? "")) updatePayment.mutate({ id: p.id, data: { date: e.target.value } }); }}
+                    className="bg-transparent outline-none text-sm border-b border-transparent hover:border-border focus:border-brand w-28" />
+                </td>
+                <td className="py-2">
+                  <select defaultValue={p.type ?? ""} onChange={(e) => updatePayment.mutate({ id: p.id, data: { type: e.target.value || null } })}
+                    className="bg-transparent outline-none text-sm text-text-secondary border-b border-transparent hover:border-border focus:border-brand">
+                    <option value="deposit">Deposit</option>
+                    <option value="payment">Payment</option>
+                    <option value="final">Final</option>
+                    <option value="refund">Refund</option>
+                  </select>
+                </td>
+                <td className="py-2">
+                  <select defaultValue={p.method ?? ""} onChange={(e) => updatePayment.mutate({ id: p.id, data: { method: e.target.value || null } })}
+                    className="bg-transparent outline-none text-sm text-text-secondary border-b border-transparent hover:border-border focus:border-brand">
+                    <option value="">—</option>
+                    <option value="bank_transfer">Bank transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="other">Other</option>
+                  </select>
+                </td>
+                <td className="py-2 text-right">
+                  <input type="number" step="0.01" defaultValue={(p.amount_cents / 100).toFixed(2)}
+                    onBlur={(e) => { const v = Math.round(parseFloat(e.target.value || "0") * 100); if (v !== p.amount_cents) updatePayment.mutate({ id: p.id, data: { amount_cents: v } }); }}
+                    className="w-20 text-right bg-transparent outline-none text-sm font-medium border-b border-transparent hover:border-border focus:border-brand" />
+                </td>
                 <td className="py-2">
                   <button onClick={() => deletePayment.mutate(p.id)}
                     className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
