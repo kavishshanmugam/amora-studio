@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Plus, Search, Phone, Mail, X, ChevronRight } from "lucide-react";
+import { Users, Plus, Search, Phone, Mail, X, ChevronRight, MapPin } from "lucide-react";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from "../hooks/use-contacts";
 import type { Contact } from "../data";
 
@@ -210,6 +210,19 @@ export function ContactsPage() {
               )}
               {selected.instagram_handle && (
                 <div className="text-text-secondary">@{selected.instagram_handle}</div>
+              )}
+              {selected.address && (
+                <div className="flex items-center gap-2 text-text-secondary">
+                  <MapPin size={14} /> {selected.address}
+                </div>
+              )}
+              {selected.website && (
+                <div className="text-text-secondary text-xs truncate">{selected.website}</div>
+              )}
+              {selected.is_crew === 1 && selected.crew_rate_cents != null && (
+                <div className="text-text-secondary">
+                  Rate: ${(selected.crew_rate_cents / 100).toFixed(2)}/{selected.crew_rate_unit ?? "hour"}
+                </div>
               )}
               {selected.notes && (
                 <div className="mt-3 p-3 bg-bg rounded-lg text-xs text-text-secondary">

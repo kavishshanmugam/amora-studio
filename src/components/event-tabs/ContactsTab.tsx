@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus, Phone, Mail, Instagram, X, Clock } from "lucide-react";
-import { useEventContacts, useLinkContact, useUnlinkContact } from "../../hooks/use-event-contacts";
+import { useEventContacts, useLinkContact, useUnlinkContact, useUpdateEventContact } from "../../hooks/use-event-contacts";
 import { useContact } from "../../hooks/use-contacts";
 import { ContactLookup } from "../shared/ContactLookup";
 import type { AmoraEvent, EventContact } from "../../data";
@@ -90,6 +90,7 @@ function EventContactCard({ link, onUnlink }: {
   link: EventContact; onUnlink: () => void;
 }) {
   const { data: contact } = useContact(link.contact_id);
+  const updateLink = useUpdateEventContact();
 
   if (!contact) return null;
 
@@ -98,7 +99,7 @@ function EventContactCard({ link, onUnlink }: {
   return (
     <div className="bg-surface rounded-xl border border-border p-4 group">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] uppercase tracking-wider text-text-secondary font-medium">{roleLabel}</span>
           </div>
@@ -121,12 +122,18 @@ function EventContactCard({ link, onUnlink }: {
               </span>
             )}
           </div>
-          {link.call_time && (
-            <p className="text-xs text-text-secondary mt-1 flex items-center gap-1">
-              <Clock size={12} /> Call time: {link.call_time}
-            </p>
-          )}
-          {link.event_notes && <p className="text-xs text-text-secondary mt-1 italic">{link.event_notes}</p>}
+          {/* Editable call time, hours, notes */}
+          <div className="flex gap-3 mt-2 items-center">
+            <div className="flex items-center gap-1 text-xs">
+              <Clock size={12} className="text-text-secondary" />
+              <input type="time" defaultValue={link.call_time ?? ""} onBlur={(e) => updateLink.mutate({ id: link.id, data: { call_time: e.target.value || null } })}
+                className="bg-transparent outline-none w-20 text-text-secondary" placeholder="Call time" />
+            </div>
+            <input type="number" defaultValue={link.hours ?? ""} onBlur={(e) => updateLink.mutate({ id: link.id, data: { hours: parseFloat(e.target.value) || null } })}
+              className="bg-transparent outline-none w-12 text-xs text-text-secondary border-b border-transparent hover:border-border focus:border-brand" placeholder="Hrs" step="0.5" />
+          </div>
+          <input defaultValue={link.event_notes ?? ""} onBlur={(e) => updateLink.mutate({ id: link.id, data: { event_notes: e.target.value || null } })}
+            className="mt-1 text-xs text-text-secondary italic bg-transparent outline-none w-full border-b border-transparent hover:border-border focus:border-brand" placeholder="Notes for this event..." />
         </div>
         <button onClick={onUnlink} className="opacity-0 group-hover:opacity-100 p-1 text-text-secondary hover:text-danger" title="Unlink">
           <X size={14} />

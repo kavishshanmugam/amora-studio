@@ -15,6 +15,8 @@ const STATUSES: { key: EventStatus | "all"; label: string }[] = [
   { key: "planning", label: "Planning" },
   { key: "ready", label: "Ready" },
   { key: "done", label: "Completed" },
+  { key: "lost", label: "Lost" },
+  { key: "cancelled", label: "Cancelled" },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
