@@ -573,6 +573,48 @@ function BackupSection() {
     }
   };
 
+  const handleCsvExport = async () => {
+    try {
+      setStatus("Exporting CSV...");
+      const db = await getDb();
+      const events = await db.select<Record<string, unknown>[]>(
+        `SELECT e.reference, e.name, e.status, e.event_type, e.start_date, e.end_date,
+          e.start_time, e.end_time, e.guest_count, e.table_count, e.lead_source,
+          e.enquiry_date, e.quote_sent_date, e.contract_signed_date,
+          c.name as client_name, c.phone as client_phone, c.email as client_email,
+          v.name as venue_name
+         FROM events e
+         LEFT JOIN contacts c ON e.client_id = c.id
+         LEFT JOIN venues v ON e.venue_id = v.id
+         WHERE e.deleted_at IS NULL
+         ORDER BY e.start_date DESC`
+      );
+      if (events.length === 0) { setStatus("No events to export."); return; }
+      const headers = Object.keys(events[0]);
+      const csvRows = [
+        headers.join(","),
+        ...events.map((row) =>
+          headers.map((h) => {
+            const val = String(row[h] ?? "");
+            return val.includes(",") || val.includes('"') || val.includes("\n")
+              ? `"${val.replace(/"/g, '""')}"` : val;
+          }).join(",")
+        ),
+      ];
+      const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `amora-events-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus("CSV exported!");
+      setTimeout(() => setStatus(null), 3000);
+    } catch (err) {
+      setStatus("CSV export failed: " + String(err));
+    }
+  };
+
   const handleRestore = async () => {
     try {
       const input = document.createElement("input");
@@ -641,6 +683,12 @@ function BackupSection() {
             className="flex items-center gap-2 text-sm border border-border px-4 py-2 rounded-lg hover:bg-bg transition-colors"
           >
             <Upload size={14} /> Restore from backup
+          </button>
+          <button
+            onClick={handleCsvExport}
+            className="flex items-center gap-2 text-sm border border-border px-4 py-2 rounded-lg hover:bg-bg transition-colors"
+          >
+            <Download size={14} /> Export CSV
           </button>
         </div>
         {status && (

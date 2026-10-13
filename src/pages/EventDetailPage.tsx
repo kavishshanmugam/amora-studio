@@ -22,6 +22,7 @@ import { PhotosTab } from "../components/event-tabs/PhotosTab";
 import { printDaySheet } from "../components/event-tabs/DaySheet";
 import { printQuote } from "../components/event-tabs/PrintQuote";
 import { ConfirmDialog, PromptDialog } from "../components/shared/ConfirmDialog";
+import { useStockClashes } from "../hooks/use-stock-clashes";
 
 // ponytail: single-page event detail, tabs added as M6+ build out
 const EVENT_TABS = [
@@ -392,6 +393,7 @@ function useTabCounts(eventId: string | null): Partial<Record<EventTab, string>>
 function OverviewTab({ event }: { event: AmoraEvent }) {
   const { data: client } = useContact(event.client_id);
   const { data: activities = [] } = useActivityLog(event.id);
+  const { data: clashes = [] } = useStockClashes(event.id, event.start_date, event.end_date);
 
   const { data: quoteTotal = 0 } = useQuery({
     queryKey: ["quote-total", event.id],
@@ -470,6 +472,29 @@ function OverviewTab({ event }: { event: AmoraEvent }) {
 
         {/* Notes */}
         {event.notes && <DetailCard icon={<FileText size={14} />} label="NOTES" value={event.notes} />}
+
+        {/* Stock clashes */}
+        {clashes.length > 0 && (
+          <div className="bg-danger/5 rounded-xl border border-danger/30 p-4">
+            <h3 className="text-xs uppercase tracking-wider text-danger font-medium mb-2">Stock clashes</h3>
+            <div className="space-y-2">
+              {clashes.map((clash) => (
+                <div key={clash.inventory_item_id} className="text-sm">
+                  <p className="font-medium text-danger">
+                    {clash.inventory_name}: {clash.total_allocated} allocated, {clash.quantity_owned} owned
+                  </p>
+                  <div className="mt-1 text-xs text-text-secondary">
+                    {clash.clashing_events.map((ce) => (
+                      <span key={ce.event_id} className="mr-3">
+                        {ce.event_name} ({ce.start_date}) ×{ce.quantity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Activity log */}
         <div className="bg-surface rounded-xl border border-border p-4">
