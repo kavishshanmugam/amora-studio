@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.claude/
+loop/
+docs/
+scripts/
+*.log
+.DS_Store
+Thumbs.db
+pw-output/
+test-results/
+e2e/

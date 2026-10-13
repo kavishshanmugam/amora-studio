@@ -1,0 +1,201 @@
+import { useState } from "react";
+import { Plus, Trash2, Package, ShoppingBag, Store, Wrench } from "lucide-react";
+import { useStylingItems, useCreateStylingItem, useUpdateStylingItem, useDeleteStylingItem } from "../../hooks/use-styling-items";
+import type { AmoraEvent, StylingItem } from "../../data";
+
+const STATUS_PILLS: Record<string, { label: string; color: string }> = {
+  need: { label: "Need", color: "bg-need/10 text-need" },
+  ordered: { label: "Ordered", color: "bg-info/10 text-info" },
+  have: { label: "Have", color: "bg-success/10 text-success" },
+};
+
+const SOURCE_ICONS: Record<string, React.ReactNode> = {
+  own_stock: <Package size={12} />,
+  buy: <ShoppingBag size={12} />,
+  supplier_hire: <Store size={12} />,
+  diy: <Wrench size={12} />,
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  own_stock: "Own stock",
+  buy: "Buy",
+  supplier_hire: "Supplier hire",
+  diy: "DIY / make",
+};
+
+type Filter = "all" | "need" | "ordered" | "have";
+
+export function StylingTab({ event }: { event: AmoraEvent }) {
+  const { data: items = [] } = useStylingItems(event.id);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [showForm, setShowForm] = useState(false);
+  const createItem = useCreateStylingItem();
+  const updateItem = useUpdateStylingItem();
+  const deleteItem = useDeleteStylingItem();
+
+  const filtered = filter === "all" ? items : items.filter((i) => i.status === filter);
+  const counts = { need: 0, ordered: 0, have: 0 };
+  for (const i of items) {
+    if (i.status in counts) counts[i.status as keyof typeof counts]++;
+  }
+
+  // Group by category
+  const groups = new Map<string, StylingItem[]>();
+  for (const item of filtered) {
+    const cat = item.category || "Other";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(item);
+  }
+
+  const handleAdd = (data: Partial<StylingItem>) => {
+    createItem.mutate({
+      event_id: event.id,
+      name: data.name!,
+      category: data.category || null,
+      quantity: data.quantity || 1,
+      source: data.source || "buy",
+      inventory_item_id: null,
+      supplier_contact_id: null,
+      supplier_text: data.supplier_text || null,
+      status: data.source === "own_stock" ? "have" : "need",
+      due_back_date: null,
+      cost_cents: data.cost_cents || null,
+      packed: 0,
+      returned_qty: null,
+      damaged_qty: null,
+      missing_qty: null,
+      damage_note: null,
+      notes: data.notes || null,
+    });
+    setShowForm(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filter pills */}
+      <div className="flex items-center gap-2">
+        {(["all", "need", "ordered", "have"] as Filter[]).map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+              filter === f ? "bg-brand text-white" : "bg-bg text-text-secondary hover:text-text-primary"
+            }`}>
+            {f === "all" ? `All (${items.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${counts[f as keyof typeof counts]})`}
+          </button>
+        ))}
+        <button onClick={() => setShowForm(true)} className="ml-auto text-xs text-brand hover:underline flex items-center gap-1">
+          <Plus size={12} /> Add item
+        </button>
+      </div>
+
+      {/* Items grouped by category */}
+      {[...groups.entries()].map(([cat, catItems]) => (
+        <div key={cat}>
+          <h4 className="text-[10px] uppercase tracking-wider text-text-secondary font-medium mb-2">{cat}</h4>
+          <div className="space-y-1">
+            {catItems.map((item) => (
+              <div key={item.id} className="group bg-surface rounded-lg border border-border p-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <span className="text-xs text-text-secondary">×{item.quantity}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_PILLS[item.status]?.color ?? "bg-bg text-text-secondary"}`}>
+                      {STATUS_PILLS[item.status]?.label ?? item.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-text-secondary">
+                    <span className="flex items-center gap-1">{SOURCE_ICONS[item.source]} {SOURCE_LABELS[item.source] ?? item.source}</span>
+                    {item.supplier_text && <span>{item.supplier_text}</span>}
+                    {item.cost_cents != null && item.cost_cents > 0 && <span>${(item.cost_cents / 100).toFixed(2)}</span>}
+                    {item.notes && <span className="italic truncate">{item.notes}</span>}
+                  </div>
+                </div>
+                {/* Status toggle */}
+                <div className="flex gap-1">
+                  {(["need", "ordered", "have"] as const).map((s) => (
+                    <button key={s} onClick={() => updateItem.mutate({ id: item.id, data: { status: s } })}
+                      className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+                        item.status === s ? STATUS_PILLS[s].color : "bg-bg/50 text-text-secondary/50 hover:text-text-secondary"
+                      }`}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => deleteItem.mutate(item.id)}
+                  className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {filtered.length === 0 && !showForm && (
+        <p className="text-sm text-text-secondary text-center py-8">No styling items yet.</p>
+      )}
+
+      {/* Add form */}
+      {showForm && <AddStylingForm onAdd={handleAdd} onClose={() => setShowForm(false)} />}
+    </div>
+  );
+}
+
+function AddStylingForm({ onAdd, onClose }: {
+  onAdd: (data: Partial<StylingItem>) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [source, setSource] = useState("buy");
+  const [supplier, setSupplier] = useState("");
+  const [cost, setCost] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onAdd({
+      name: name.trim(),
+      category: category || null,
+      quantity: parseInt(quantity) || 1,
+      source,
+      supplier_text: supplier || null,
+      cost_cents: cost ? Math.round(parseFloat(cost) * 100) : null,
+      notes: notes || null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-surface rounded-xl border border-border p-4 space-y-3">
+      <h4 className="text-sm font-medium">Add styling item</h4>
+      <div className="flex gap-2">
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name *"
+          className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+        <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category"
+          className="w-32 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+        <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min="1"
+          className="w-16 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand text-right" />
+      </div>
+      <div className="flex gap-2">
+        <select value={source} onChange={(e) => setSource(e.target.value)}
+          className="text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand">
+          <option value="buy">Buy</option>
+          <option value="own_stock">Own stock</option>
+          <option value="supplier_hire">Supplier hire</option>
+          <option value="diy">DIY / make</option>
+        </select>
+        <input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Supplier name"
+          className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+        <input type="number" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost ($)" step="0.01"
+          className="w-24 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+      </div>
+      <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes"
+        className="w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+      <div className="flex gap-2">
+        <button type="submit" className="text-sm px-4 py-1.5 bg-brand text-white rounded-lg hover:bg-brand/90">Add</button>
+        <button type="button" onClick={onClose} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">Cancel</button>
+      </div>
+    </form>
+  );
+}
