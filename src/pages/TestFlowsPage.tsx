@@ -92,11 +92,12 @@ const testId = () => TEST_PREFIX + uid().slice(0, 12);
 // --- Cleanup: delete all rows with TEST_ prefix IDs ---
 async function cleanup() {
   const db = await getDb();
+  // Delete dependants first so foreign-key constraints cannot leave test rows behind.
   const tables = [
-    "events", "contacts", "venues", "catalogue_items", "inventory_items",
-    "quote_lines", "payments", "expenses", "checklist_items", "checklist_templates",
-    "checklist_template_items", "event_contacts", "styling_items", "run_sheet_items",
-    "images", "vision_links", "instagram_posts", "hashtag_sets", "activity_log", "reminders",
+    "quote_lines", "payments", "expenses", "checklist_items", "styling_items",
+    "run_sheet_items", "event_contacts", "images", "vision_links", "instagram_posts",
+    "activity_log", "reminders", "checklist_template_items", "checklist_templates",
+    "events", "inventory_items", "catalogue_items", "contacts", "venues",
   ];
   for (const table of tables) {
     try {
@@ -685,9 +686,9 @@ const ALL_TESTS: { name: string; fn: () => Promise<void> }[] = [
       const testKey = "__test_setting";
       const now = new Date().toISOString();
       await db.execute(
-        `INSERT OR REPLACE INTO settings (id, key, value, created_at, updated_at)
-         VALUES (?, ?, 'test_value', ?, ?)`,
-        [testId(), testKey, now, now]
+        `INSERT OR REPLACE INTO settings (key, value, updated_at)
+         VALUES (?, 'test_value', ?)`,
+        [testKey, now]
       );
 
       const [s] = await db.select<{ value: string }[]>(

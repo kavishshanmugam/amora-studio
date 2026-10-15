@@ -1,22 +1,38 @@
 import { useState } from "react";
-import { Plus, Trash2, Search, Banknote, Send } from "lucide-react";
+import { Plus, Trash2, Search, Banknote, Send, GripVertical } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useQuoteLines, useQuoteSubtotal, useCreateQuoteLine, useUpdateQuoteLine, useDeleteQuoteLine } from "../../hooks/use-quote-lines";
 import { usePayments, usePaymentTotal, useCreatePayment, useUpdatePayment, useDeletePayment } from "../../hooks/use-payments";
 import { useExpenses, useCreateExpense, useDeleteExpense } from "../../hooks/use-expenses";
 import { useCatalogueItems } from "../../hooks/use-catalogue";
 import { useUpdateEvent } from "../../hooks/use-events";
+import { useDragReorder } from "../../hooks/use-drag-reorder";
 import type { AmoraEvent, QuoteLine, Payment, Expense, CatalogueItem } from "../../data";
 import { format } from "date-fns";
-import { PromptDialog } from "../shared/ConfirmDialog";
+import { ConfirmDialog, PromptDialog } from "../shared/ConfirmDialog";
+import { useSetting } from "../../hooks/use-settings";
+import { localDateKey, parseSettingList } from "../../utils/events-core";
+
+const DEFAULT_EXPENSE_CATEGORIES = ["Materials", "Balloons", "Florals", "Supplier hire", "Crew", "Fuel/travel", "Other"];
 
 const fmtCents = (c: number) => `$${(c / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`;
+
+export function clampFinancialTotal(subtotal: number, discount: number): number {
+  return Math.max(0, subtotal - discount);
+}
+
+const dollarsToCents = (value: string): number | null => {
+  if (value.trim() === "") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : null;
+};
 
 // Payment status per PRD §7.9
 function paymentStatus(event: AmoraEvent, price: number, paid: number): { label: string; color: string } {
   if (price <= 0) return { label: "No price set", color: "bg-bg text-text-secondary border border-border" };
   if (paid >= price) return { label: "Paid in full", color: "bg-success/10 text-success" };
   const depositAmt = event.deposit_cents ?? 0;
-  const now = new Date().toISOString().slice(0, 10);
+  const now = localDateKey();
   if ((event.deposit_due_date && event.deposit_due_date <= now && paid < depositAmt) ||
       (event.balance_due_date && event.balance_due_date <= now && paid < price)) {
     return { label: "Overdue", color: "bg-danger/10 text-danger" };
@@ -35,14 +51,14 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
   const { data: expenses = [] } = useExpenses(event.id);
   const updateEvent = useUpdateEvent();
 
-  const price = event.price_override_cents ?? (subtotal - event.quote_discount_cents);
+  const price = event.price_override_cents ?? clampFinancialTotal(subtotal, event.quote_discount_cents);
   const expenseTotal = expenses.reduce((s, e) => s + e.amount_cents, 0);
   const profit = price - expenseTotal;
   const owing = price - paidTotal;
   const status = paymentStatus(event, price, paidTotal);
 
   const handleMarkQuoteSent = () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateKey();
     updateEvent.mutate({ id: event.id, data: { quote_sent_date: today, status: "quote_sent" } });
   };
 
@@ -73,24 +89,13 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
         </button>
       </div>
 
+      <FinancialDetails event={event} />
+
       {/* Quote builder */}
       <QuoteBuilder eventId={event.id} lines={lines} subtotal={subtotal} discount={event.quote_discount_cents} />
 
       {/* Payment summary + recording */}
       <PaymentSection eventId={event.id} event={event} payments={payments} price={price} paidTotal={paidTotal} owing={owing} />
-
-      {/* Bond */}
-      {(event.bond_cents != null && event.bond_cents > 0) && (
-        <div className="bg-surface rounded-xl border border-border p-4">
-          <h3 className="text-xs uppercase tracking-wider text-text-secondary font-medium mb-2">Bond</h3>
-          <div className="flex gap-4 text-sm">
-            <span>Amount: {fmtCents(event.bond_cents)}</span>
-            {event.bond_received_date && <span className="text-success">Received {event.bond_received_date}</span>}
-            {event.bond_returned_date && <span className="text-info">Returned {event.bond_returned_date}</span>}
-          </div>
-          {event.bond_notes && <p className="text-xs text-text-secondary mt-1">{event.bond_notes}</p>}
-        </div>
-      )}
 
       {/* Expenses */}
       <ExpenseSection eventId={event.id} expenses={expenses} />
@@ -121,6 +126,63 @@ export function QuotePaymentsTab({ event }: { event: AmoraEvent }) {
   );
 }
 
+function FinancialDetails({ event }: { event: AmoraEvent }) {
+  const updateEvent = useUpdateEvent();
+  const save = (data: Partial<AmoraEvent>) => updateEvent.mutate({ id: event.id, data });
+  const saveMoney = (field: "quote_discount_cents" | "deposit_cents" | "bond_cents", value: string) => {
+    const cents = dollarsToCents(value);
+    if (cents !== null || value.trim() === "") {
+      save({ [field]: cents ?? (field === "quote_discount_cents" ? 0 : null) });
+    }
+  };
+
+  return (
+    <div className="bg-surface rounded-xl border border-border p-4 space-y-4">
+      <h3 className="text-xs uppercase tracking-wider text-text-secondary font-medium">Financial details</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <LabeledInput label="Quote discount ($)" type="number" min="0" step="0.01"
+          defaultValue={(event.quote_discount_cents / 100).toFixed(2)} onValueBlur={(v) => saveMoney("quote_discount_cents", v)} />
+        <LabeledInput label="Quote valid until" type="date" defaultValue={event.quote_valid_until ?? ""}
+          onValueBlur={(v) => save({ quote_valid_until: v || null })} />
+        <LabeledInput label="Deposit ($)" type="number" min="0" step="0.01"
+          defaultValue={event.deposit_cents == null ? "" : (event.deposit_cents / 100).toFixed(2)} onValueBlur={(v) => saveMoney("deposit_cents", v)} />
+        <LabeledInput label="Deposit due" type="date" defaultValue={event.deposit_due_date ?? ""}
+          onValueBlur={(v) => save({ deposit_due_date: v || null })} />
+        <LabeledInput label="Balance due" type="date" defaultValue={event.balance_due_date ?? ""}
+          onValueBlur={(v) => save({ balance_due_date: v || null })} />
+        <LabeledInput label="Contract signed" type="date" defaultValue={event.contract_signed_date ?? ""}
+          onValueBlur={(v) => save({ contract_signed_date: v || null })} />
+        <LabeledInput label="Bond ($)" type="number" min="0" step="0.01"
+          defaultValue={event.bond_cents == null ? "" : (event.bond_cents / 100).toFixed(2)} onValueBlur={(v) => saveMoney("bond_cents", v)} />
+        <LabeledInput label="Bond received" type="date" defaultValue={event.bond_received_date ?? ""}
+          onValueBlur={(v) => save({ bond_received_date: v || null })} />
+        <LabeledInput label="Bond returned" type="date" defaultValue={event.bond_returned_date ?? ""}
+          onValueBlur={(v) => save({ bond_returned_date: v || null })} />
+      </div>
+      <label className="block text-xs text-text-secondary">Quote notes
+        <textarea defaultValue={event.quote_notes ?? ""} onBlur={(e) => save({ quote_notes: e.target.value || null })}
+          className="mt-1 w-full min-h-16 text-sm px-3 py-2 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
+      </label>
+      <label className="block text-xs text-text-secondary">Bond notes
+        <input defaultValue={event.bond_notes ?? ""} onBlur={(e) => save({ bond_notes: e.target.value || null })}
+          className="mt-1 w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
+      </label>
+    </div>
+  );
+}
+
+type LabeledInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onBlur"> & {
+  label: string;
+  onValueBlur: (value: string) => void;
+};
+
+function LabeledInput({ label, onValueBlur, ...props }: LabeledInputProps) {
+  return <label className="text-xs text-text-secondary">{label}
+    <input {...props} onBlur={(e) => onValueBlur(e.target.value)}
+      className="mt-1 w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
+  </label>;
+}
+
 // --- Quote Builder ---
 
 function QuoteBuilder({ eventId, lines, subtotal, discount }: {
@@ -128,9 +190,14 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const createLine = useCreateQuoteLine();
   const updateLine = useUpdateQuoteLine();
   const deleteLine = useDeleteQuoteLine();
+  const qc = useQueryClient();
+  const drag = useDragReorder("quote_lines", () => {
+    qc.invalidateQueries({ queryKey: ["quote-lines", eventId] });
+  });
 
   const handleAddFromCatalogue = (item: CatalogueItem) => {
     createLine.mutate({
@@ -160,7 +227,7 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
     setShowCustom(false);
   };
 
-  const total = subtotal - discount;
+  const total = clampFinancialTotal(subtotal, discount);
 
   return (
     <div className="bg-surface rounded-xl border border-border p-4">
@@ -181,6 +248,7 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
+              <th className="w-6" />
               <th className="text-left py-2 font-medium">Description</th>
               <th className="text-right py-2 font-medium w-16">Qty</th>
               <th className="text-right py-2 font-medium w-16">Unit</th>
@@ -191,32 +259,46 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
+            {lines.map((line, index) => {
               const lineTotal = line.quantity * line.unit_price_cents - line.line_discount_cents;
               return (
-                <tr key={line.id} className="border-b border-border/50 group">
+                <tr key={line.id} tabIndex={0} aria-label={`${line.description}. Reorder with Alt+Arrow keys`}
+                  onKeyDown={(e) => {
+                    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                    e.preventDefault();
+                    const target = lines[index + (e.key === "ArrowUp" ? -1 : 1)];
+                    if (target) void drag.moveItem(line.id, target.id, lines);
+                  }}
+                  className={`border-b border-border/50 group ${drag.dragId === line.id ? "opacity-50" : ""}`}
+                  draggable onDragStart={() => drag.onDragStart(line.id)} onDragOver={drag.onDragOver}
+                  onDrop={() => drag.onDrop(line.id, lines)} onDragEnd={drag.onDragEnd}>
+                  <td className="py-2 cursor-grab text-text-secondary/40 hover:text-text-secondary">
+                    <GripVertical size={14} />
+                  </td>
                   <td className="py-2">
                     <input value={line.description ?? ""} onChange={(e) => updateLine.mutate({ id: line.id, data: { description: e.target.value } })}
                       className="w-full bg-transparent outline-none" />
                   </td>
                   <td className="py-2 text-right">
-                    <input type="number" value={line.quantity} onChange={(e) => updateLine.mutate({ id: line.id, data: { quantity: parseInt(e.target.value) || 1 } })}
-                      className="w-12 text-right bg-transparent outline-none" />
+                    <input type="number" min="0.01" step="any" value={line.quantity} onChange={(e) => {
+                      const quantity = Number(e.target.value);
+                      if (Number.isFinite(quantity) && quantity > 0) updateLine.mutate({ id: line.id, data: { quantity } });
+                    }} className="w-12 text-right bg-transparent outline-none" />
                   </td>
                   <td className="py-2 text-right text-text-secondary">{line.unit}</td>
                   <td className="py-2 text-right">
                     <input type="number" value={(line.unit_price_cents / 100).toFixed(2)}
-                      onChange={(e) => updateLine.mutate({ id: line.id, data: { unit_price_cents: Math.round(parseFloat(e.target.value || "0") * 100) } })}
-                      className="w-20 text-right bg-transparent outline-none" step="0.01" />
+                      onChange={(e) => { const amount = Number(e.target.value); if (Number.isFinite(amount) && amount >= 0) updateLine.mutate({ id: line.id, data: { unit_price_cents: Math.round(amount * 100) } }); }}
+                      className="w-20 text-right bg-transparent outline-none" min="0" step="0.01" />
                   </td>
                   <td className="py-2 text-right">
                     <input type="number" value={(line.line_discount_cents / 100).toFixed(2)}
-                      onChange={(e) => updateLine.mutate({ id: line.id, data: { line_discount_cents: Math.round(parseFloat(e.target.value || "0") * 100) } })}
-                      className="w-16 text-right bg-transparent outline-none text-text-secondary" step="0.01" />
+                      onChange={(e) => { const amount = Number(e.target.value); if (Number.isFinite(amount) && amount >= 0) updateLine.mutate({ id: line.id, data: { line_discount_cents: Math.round(amount * 100) } }); }}
+                      className="w-16 text-right bg-transparent outline-none text-text-secondary" min="0" step="0.01" />
                   </td>
                   <td className="py-2 text-right font-medium">{fmtCents(lineTotal)}</td>
                   <td className="py-2">
-                    <button onClick={() => deleteLine.mutate(line.id)}
+                    <button onClick={() => setDeleteId(line.id)} aria-label="Remove quote line"
                       className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                       <Trash2 size={12} />
                     </button>
@@ -255,6 +337,9 @@ function QuoteBuilder({ eventId, lines, subtotal, discount }: {
 
       {/* Custom line form */}
       {showCustom && <CustomLineForm onAdd={handleAddCustom} onClose={() => setShowCustom(false)} />}
+      <ConfirmDialog open={deleteId !== null} title="Remove quote line?" confirmLabel="Remove" danger
+        onConfirm={() => { if (deleteId) deleteLine.mutate(deleteId); setDeleteId(null); }}
+        onCancel={() => setDeleteId(null)} />
     </div>
   );
 }
@@ -319,7 +404,10 @@ function CustomLineForm({ onAdd, onClose }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!desc.trim() || !price) return;
-    onAdd(desc.trim(), parseInt(qty) || 1, unit, Math.round(parseFloat(price) * 100));
+    const quantity = Number(qty);
+    const amount = Number(price);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(amount) || amount < 0) return;
+    onAdd(desc.trim(), quantity, unit, Math.round(amount * 100));
   };
 
   return (
@@ -327,7 +415,7 @@ function CustomLineForm({ onAdd, onClose }: {
       <div className="flex gap-2">
         <input autoFocus value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description"
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
-        <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Qty" min="1"
+        <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Qty" min="0.01" step="any"
           className="w-16 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface text-right" />
       </div>
       <div className="flex gap-2">
@@ -348,6 +436,7 @@ function PaymentSection({ eventId, event, payments, price, paidTotal, owing }: {
   eventId: string; event: AmoraEvent; payments: Payment[]; price: number; paidTotal: number; owing: number;
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const createPayment = useCreatePayment();
   const updatePayment = useUpdatePayment();
   const deletePayment = useDeletePayment();
@@ -441,7 +530,7 @@ function PaymentSection({ eventId, event, payments, price, paidTotal, owing }: {
                     className="w-20 text-right bg-transparent outline-none text-sm font-medium border-b border-transparent hover:border-border focus:border-brand" />
                 </td>
                 <td className="py-2">
-                  <button onClick={() => deletePayment.mutate(p.id)}
+                  <button onClick={() => setDeleteId(p.id)} aria-label="Remove payment"
                     className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                     <Trash2 size={12} />
                   </button>
@@ -456,6 +545,9 @@ function PaymentSection({ eventId, event, payments, price, paidTotal, owing }: {
 
       {/* Add payment form */}
       {showForm && <PaymentForm onAdd={handleAdd} onClose={() => setShowForm(false)} />}
+      <ConfirmDialog open={deleteId !== null} title="Remove payment?" confirmLabel="Remove" danger
+        onConfirm={() => { if (deleteId) deletePayment.mutate(deleteId); setDeleteId(null); }}
+        onCancel={() => setDeleteId(null)} />
     </div>
   );
 }
@@ -464,7 +556,7 @@ function PaymentForm({ onAdd, onClose }: {
   onAdd: (date: string, amount: number, type: string, method: string, note: string) => void;
   onClose: () => void;
 }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localDateKey());
   const [amount, setAmount] = useState("");
   const [type, setType] = useState("payment");
   const [method, setMethod] = useState("");
@@ -472,8 +564,9 @@ function PaymentForm({ onAdd, onClose }: {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount) return;
-    onAdd(date, Math.round(parseFloat(amount) * 100), type, method, note);
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) return;
+    onAdd(date, Math.round(value * 100), type, method, note);
   };
 
   return (
@@ -481,7 +574,7 @@ function PaymentForm({ onAdd, onClose }: {
       <div className="flex gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
           className="text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
-        <input autoFocus type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount ($)" step="0.01"
+        <input autoFocus type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount ($)" min="0.01" step="0.01"
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
         <select value={type} onChange={(e) => setType(e.target.value)}
           className="text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface">
@@ -513,6 +606,7 @@ function PaymentForm({ onAdd, onClose }: {
 
 function ExpenseSection({ eventId, expenses }: { eventId: string; expenses: Expense[] }) {
   const [showForm, setShowForm] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const createExpense = useCreateExpense();
   const deleteExpense = useDeleteExpense();
 
@@ -562,7 +656,7 @@ function ExpenseSection({ eventId, expenses }: { eventId: string; expenses: Expe
                 <td className="py-2 text-text-secondary">{exp.category || "—"}</td>
                 <td className="py-2 text-right font-medium">{fmtCents(exp.amount_cents)}</td>
                 <td className="py-2">
-                  <button onClick={() => deleteExpense.mutate(exp.id)}
+                  <button onClick={() => setDeleteId(exp.id)} aria-label="Remove expense"
                     className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                     <Trash2 size={12} />
                   </button>
@@ -576,6 +670,9 @@ function ExpenseSection({ eventId, expenses }: { eventId: string; expenses: Expe
       )}
 
       {showForm && <ExpenseForm onAdd={handleAdd} onClose={() => setShowForm(false)} />}
+      <ConfirmDialog open={deleteId !== null} title="Remove expense?" confirmLabel="Remove" danger
+        onConfirm={() => { if (deleteId) deleteExpense.mutate(deleteId); setDeleteId(null); }}
+        onCancel={() => setDeleteId(null)} />
     </div>
   );
 }
@@ -584,15 +681,18 @@ function ExpenseForm({ onAdd, onClose }: {
   onAdd: (date: string, desc: string, category: string, amountCents: number) => void;
   onClose: () => void;
 }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localDateKey());
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState("");
   const [amount, setAmount] = useState("");
+  const { data: expenseCategoriesSetting } = useSetting("expense_categories");
+  const expenseCategories = parseSettingList(expenseCategoriesSetting, DEFAULT_EXPENSE_CATEGORIES);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!desc.trim() || !amount) return;
-    onAdd(date, desc.trim(), category, Math.round(parseFloat(amount) * 100));
+    const value = Number(amount);
+    if (!desc.trim() || !Number.isFinite(value) || value <= 0) return;
+    onAdd(date, desc.trim(), category, Math.round(value * 100));
   };
 
   return (
@@ -607,15 +707,11 @@ function ExpenseForm({ onAdd, onClose }: {
         <select value={category} onChange={(e) => setCategory(e.target.value)}
           className="text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface">
           <option value="">Category...</option>
-          <option value="Materials">Materials</option>
-          <option value="Balloons">Balloons</option>
-          <option value="Florals">Florals</option>
-          <option value="Supplier hire">Supplier hire</option>
-          <option value="Crew">Crew</option>
-          <option value="Fuel/travel">Fuel/travel</option>
-          <option value="Other">Other</option>
+          {expenseCategories.map((expenseCategory) => (
+            <option key={expenseCategory} value={expenseCategory}>{expenseCategory}</option>
+          ))}
         </select>
-        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount ($)" step="0.01"
+        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount ($)" min="0.01" step="0.01"
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
         <button type="submit" className="text-sm px-4 py-1.5 bg-brand text-white rounded-lg hover:bg-brand/90">Add</button>
         <button type="button" onClick={onClose} className="text-sm px-3 py-1.5 border border-border rounded-lg hover:bg-bg">Cancel</button>

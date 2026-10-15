@@ -1,11 +1,19 @@
-import { useState } from "react";
-import { Check, Trash2, RotateCcw, AlertTriangle, Hash, Plus, X, Download, Upload } from "lucide-react";
+import { useState, useRef, useId } from "react";
+import { Check, Trash2, RotateCcw, AlertTriangle, Hash, Plus, X, Download, Upload, ImageIcon } from "lucide-react";
 import { useSettings, useUpdateSetting } from "../hooks/use-settings";
 import { useTrash, useRestoreItem, usePermanentDelete } from "../hooks/use-trash";
 import type { TrashItem } from "../hooks/use-trash";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getDb } from "../data";
 import { uid } from "../data/uid";
+import {
+  BACKUP_TABLES,
+  createBackupData,
+  parseBackup,
+  restoreBackup,
+  type BackupData,
+} from "../utils/backup-restore";
+import { localDateKey } from "../utils/events-core";
 
 const BUSINESS_FIELDS = [
   { key: "business_name", label: "Business name", placeholder: "Amora Events" },
@@ -88,6 +96,18 @@ export function SettingsPage() {
             />
           ))}
         </div>
+      </section>
+
+      {/* Logo upload */}
+      <section>
+        <h2 className="text-xs uppercase tracking-wider text-text-secondary font-medium mb-4">
+          Logo
+        </h2>
+        <LogoUpload
+          currentLogo={settings?.find((s) => s.key === "business_logo")?.value ?? null}
+          onSave={(dataUrl) => handleSave("business_logo", dataUrl)}
+          onRemove={() => handleSave("business_logo", "")}
+        />
       </section>
 
       {/* Editable lists */}
@@ -237,12 +257,14 @@ function SettingRow({
     setEditing(false);
   };
 
+  const fieldId = useId();
   return (
     <div className="flex items-center gap-4 px-5 py-3">
-      <label className="w-44 text-sm text-text-secondary shrink-0">{label}</label>
+      <label htmlFor={fieldId} className="w-44 text-sm text-text-secondary shrink-0">{label}</label>
       <div className="flex-1 relative">
         {editing ? (
           <input
+            id={fieldId}
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -537,33 +559,22 @@ function HashtagSetsSection() {
 
 function BackupSection() {
   const [status, setStatus] = useState<string | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<{ name: string; data: BackupData } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   const handleBackup = async () => {
     try {
       setStatus("Creating backup...");
-      // ponytail: in Tauri, this would use dialog.save() + fs.copyFile on the SQLite file
-      // For now, export all data as JSON
       const db = await getDb();
-      const tables = [
-        "contacts", "venues", "events", "catalogue_items", "inventory_items",
-        "quote_lines", "payments", "expenses", "checklist_items", "checklist_templates",
-        "reminders", "settings", "event_contacts", "styling_items", "run_sheet_items",
-        "images", "vision_links", "instagram_posts", "hashtag_sets", "activity_log",
-      ];
-      const data: Record<string, unknown[]> = {};
-      for (const table of tables) {
-        try {
-          data[table] = await db.select(`SELECT * FROM ${table}`);
-        } catch {
-          data[table] = [];
-        }
-      }
+      const data = await createBackupData(db);
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `amora-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `amora-backup-${localDateKey()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setStatus("Backup downloaded!");
@@ -605,7 +616,7 @@ function BackupSection() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `amora-events-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `amora-events-${localDateKey()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       setStatus("CSV exported!");
@@ -615,50 +626,35 @@ function BackupSection() {
     }
   };
 
-  const handleRestore = async () => {
+  const handleRestoreFile = async (file: File | undefined) => {
+    setSelectedBackup(null);
+    if (!file) return;
     try {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".json";
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        setStatus("Restoring...");
-        const text = await file.text();
-        const data = JSON.parse(text) as Record<string, Record<string, unknown>[]>;
-        const db = await getDb();
-        const ALLOWED_TABLES = new Set([
-          "contacts", "venues", "events", "catalogue_items", "inventory_items",
-          "quote_lines", "payments", "expenses", "checklist_items", "checklist_templates",
-          "reminders", "settings", "event_contacts", "styling_items", "run_sheet_items",
-          "images", "vision_links", "instagram_posts", "hashtag_sets", "activity_log",
-        ]);
-
-        await db.execute("BEGIN TRANSACTION");
-        try {
-          for (const [table, rows] of Object.entries(data)) {
-            if (!ALLOWED_TABLES.has(table) || !rows.length) continue;
-            await db.execute(`DELETE FROM ${table}`);
-            for (const row of rows) {
-              const keys = Object.keys(row).filter((k) => /^[a-z_]+$/.test(k));
-              const placeholders = keys.map(() => "?").join(", ");
-              const values = keys.map((k) => row[k]);
-              await db.execute(
-                `INSERT INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`,
-                values as unknown[]
-              );
-            }
-          }
-          await db.execute("COMMIT");
-        } catch (err) {
-          await db.execute("ROLLBACK");
-          throw err;
-        }
-        setStatus("Restore complete! Refresh to see changes.");
-      };
-      input.click();
+      setStatus("Validating backup...");
+      const data = parseBackup(await file.text());
+      setSelectedBackup({ name: file.name, data });
+      setStatus(null);
     } catch (err) {
-      setStatus("Restore failed: " + String(err));
+      setStatus("Restore failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!selectedBackup) return;
+    try {
+      setBusy(true);
+      setStatus("Restoring...");
+      const db = await getDb();
+      await restoreBackup(db, selectedBackup.data);
+      await queryClient.invalidateQueries();
+      setSelectedBackup(null);
+      setStatus("Restore complete! Refresh to see changes.");
+    } catch (err) {
+      setStatus("Restore failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -679,11 +675,20 @@ function BackupSection() {
             <Download size={14} /> Export backup
           </button>
           <button
-            onClick={handleRestore}
-            className="flex items-center gap-2 text-sm border border-border px-4 py-2 rounded-lg hover:bg-bg transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            className="flex items-center gap-2 text-sm border border-border px-4 py-2 rounded-lg hover:bg-bg transition-colors disabled:opacity-50"
           >
             <Upload size={14} /> Restore from backup
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            aria-label="Choose backup file"
+            className="hidden"
+            onChange={(event) => void handleRestoreFile(event.target.files?.[0])}
+          />
           <button
             onClick={handleCsvExport}
             className="flex items-center gap-2 text-sm border border-border px-4 py-2 rounded-lg hover:bg-bg transition-colors"
@@ -691,10 +696,91 @@ function BackupSection() {
             <Download size={14} /> Export CSV
           </button>
         </div>
+        {selectedBackup && (
+          <div className="rounded-lg border border-danger/30 bg-danger/5 p-3 space-y-2">
+            <p className="text-xs text-danger">
+              This will replace data in {BACKUP_TABLES.filter((table) => Object.prototype.hasOwnProperty.call(selectedBackup.data, table)).length} tables from {selectedBackup.name}.
+              This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void handleRestore()}
+                disabled={busy}
+                className="text-xs px-3 py-1.5 bg-danger text-white rounded-lg disabled:opacity-50"
+              >
+                {busy ? "Restoring..." : "Confirm restore"}
+              </button>
+              <button
+                onClick={() => setSelectedBackup(null)}
+                disabled={busy}
+                className="text-xs px-3 py-1.5 text-text-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {status && (
-          <p className="text-xs text-brand">{status}</p>
+          <p role="status" className="text-xs text-brand">{status}</p>
         )}
       </div>
     </section>
+  );
+}
+
+function LogoUpload({ currentLogo, onSave, onRemove }: {
+  currentLogo: string | null;
+  onSave: (dataUrl: string) => void;
+  onRemove: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500_000) {
+      alert("Logo must be under 500 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        onSave(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="bg-surface rounded-xl border border-border p-4">
+      <div className="flex items-center gap-4">
+        {currentLogo ? (
+          <img src={currentLogo} alt="Logo" className="w-16 h-16 object-contain rounded-lg border border-border" />
+        ) : (
+          <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center">
+            <ImageIcon size={24} className="text-text-secondary/30" />
+          </div>
+        )}
+        <div className="flex-1">
+          <p className="text-sm text-text-secondary mb-2">
+            {currentLogo ? "Logo uploaded" : "Upload your business logo for quotes and day sheets."}
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => inputRef.current?.click()}
+              className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg transition-colors">
+              {currentLogo ? "Change" : "Upload"}
+            </button>
+            {currentLogo && (
+              <button type="button" onClick={onRemove}
+                className="text-xs px-3 py-1.5 text-danger hover:bg-danger/5 rounded-lg transition-colors">
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={handleFile} className="hidden" />
+    </div>
   );
 }

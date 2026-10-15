@@ -181,6 +181,7 @@ export interface StylingItem {
   missing_qty: number | null;
   damage_note: string | null;
   notes: string | null;
+  position: number;
   created_at: string;
   updated_at: string;
 }

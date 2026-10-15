@@ -1,12 +1,14 @@
 import { useState, useRef } from "react";
-import { Circle, CheckCircle2, Trash2, Calendar, ClipboardList, Save } from "lucide-react";
+import { Circle, CheckCircle2, Trash2, Calendar, ClipboardList, Save, GripVertical } from "lucide-react";
 import { useChecklistItems, useCreateChecklistItem, useUpdateChecklistItem, useDeleteChecklistItem } from "../../hooks/use-checklist";
 import type { AmoraEvent, ChecklistItem } from "../../data";
 import { getDb } from "../../data";
 import { uid } from "../../data/uid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { PromptDialog } from "../shared/ConfirmDialog";
+import { ConfirmDialog, PromptDialog } from "../shared/ConfirmDialog";
+import { useDragReorder } from "../../hooks/use-drag-reorder";
+import { localDateKey } from "../../utils/events-core";
 
 export function ChecklistTab({ event }: { event: AmoraEvent }) {
   const { data: items = [] } = useChecklistItems(event.id);
@@ -29,36 +31,40 @@ export function ChecklistTab({ event }: { event: AmoraEvent }) {
         )}
       </div>
 
-      <ChecklistSection title="Planning" section="planning" eventId={event.id} items={planning} />
+      <ChecklistSection title="Planning" section="planning" eventId={event.id} eventType={event.event_type} items={planning} />
 
       {showWrapUp && (
-        <ChecklistSection title="Wrap-up" section="wrap_up" eventId={event.id} items={wrapUp} />
+        <ChecklistSection title="Wrap-up" section="wrap_up" eventId={event.id} eventType={event.event_type} items={wrapUp} />
       )}
     </div>
   );
 }
 
-function ChecklistSection({ title, section, eventId, items }: {
-  title: string; section: string; eventId: string; items: ChecklistItem[];
+function ChecklistSection({ title, section, eventId, eventType, items }: {
+  title: string; section: string; eventId: string; eventType: string | null; items: ChecklistItem[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [newTask, setNewTask] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ChecklistItem | null>(null);
   const createItem = useCreateChecklistItem();
   const updateItem = useUpdateChecklistItem();
   const deleteItem = useDeleteChecklistItem();
   const qc = useQueryClient();
+  const drag = useDragReorder<ChecklistItem>("checklist_items", () => {
+    qc.invalidateQueries({ queryKey: ["checklist", eventId] });
+  }, (source, target) => source.is_done === target.is_done);
 
   // Templates for this section
   const isWrapUp = section === "wrap_up";
   const { data: templates = [] } = useQuery({
-    queryKey: ["templates-for-section", isWrapUp],
+    queryKey: ["templates-for-section", isWrapUp, eventType],
     queryFn: async () => {
       const db = await getDb();
       return db.select<{ id: string; name: string }[]>(
-        "SELECT id, name FROM checklist_templates WHERE is_wrap_up = ? ORDER BY name",
-        [isWrapUp ? 1 : 0]
+        "SELECT id, name FROM checklist_templates WHERE is_wrap_up = ? AND (event_type IS NULL OR event_type = ?) ORDER BY name",
+        [isWrapUp ? 1 : 0, eventType]
       );
     },
   });
@@ -83,7 +89,7 @@ function ChecklistSection({ title, section, eventId, items }: {
       if (task.days_before_event != null && eventDate) {
         const d = new Date(eventDate + "T00:00:00");
         d.setDate(d.getDate() - task.days_before_event);
-        dueDate = d.toISOString().slice(0, 10);
+        dueDate = localDateKey(d);
       }
       createItem.mutate({
         event_id: eventId,
@@ -103,8 +109,8 @@ function ChecklistSection({ title, section, eventId, items }: {
     const tplId = uid();
     const now = new Date().toISOString();
     await db.execute(
-      "INSERT INTO checklist_templates (id, name, event_type, is_wrap_up, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?)",
-      [tplId, name.trim(), isWrapUp ? 1 : 0, now, now]
+      "INSERT INTO checklist_templates (id, name, event_type, is_wrap_up, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [tplId, name.trim(), eventType, isWrapUp ? 1 : 0, now, now]
     );
     for (const item of items) {
       await db.execute(
@@ -193,10 +199,22 @@ function ChecklistSection({ title, section, eventId, items }: {
 
       {/* Task list */}
       <div className="space-y-1">
-        {sorted.map((item) => {
-          const overdue = item.due_date && !item.is_done && item.due_date < new Date().toISOString().slice(0, 10);
+        {sorted.map((item, index) => {
+          const overdue = item.due_date && !item.is_done && item.due_date < localDateKey();
           return (
-            <div key={item.id} className="group flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-highlight/30">
+            <div key={item.id} tabIndex={0} aria-label={`${item.text}. Reorder with Alt+Arrow keys`}
+              onKeyDown={(e) => {
+                if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                e.preventDefault();
+                const target = sorted[index + (e.key === "ArrowUp" ? -1 : 1)];
+                if (target) void drag.moveItem(item.id, target.id, sorted);
+              }}
+              className={`group flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-highlight/30 ${drag.dragId === item.id ? "opacity-50" : ""}`}
+              draggable onDragStart={() => drag.onDragStart(item.id)} onDragOver={drag.onDragOver}
+              onDrop={() => drag.onDrop(item.id, sorted)} onDragEnd={drag.onDragEnd}>
+              <span className="cursor-grab text-text-secondary/30 hover:text-text-secondary shrink-0">
+                <GripVertical size={14} />
+              </span>
               <button onClick={() => toggleDone(item)} className="shrink-0">
                 {item.is_done
                   ? <CheckCircle2 size={18} className="text-brand" />
@@ -210,7 +228,7 @@ function ChecklistSection({ title, section, eventId, items }: {
                   <Calendar size={10} /> {formatShortDate(item.due_date)}
                 </span>
               )}
-              <button onClick={() => deleteItem.mutate(item.id)}
+              <button type="button" aria-label={`Remove ${item.text}`} onClick={() => setDeleteTarget(item)}
                 className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                 <Trash2 size={12} />
               </button>
@@ -235,6 +253,18 @@ function ChecklistSection({ title, section, eventId, items }: {
       <PromptDialog open={showSavePrompt} title="Save as template" placeholder="Template name"
         onSubmit={(name) => { doSaveTemplate(name); setShowSavePrompt(false); }}
         onCancel={() => setShowSavePrompt(false)} />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Remove checklist item?"
+        message={deleteTarget ? `Remove “${deleteTarget.text}” from this event?` : undefined}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          if (deleteTarget) deleteItem.mutate(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

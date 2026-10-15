@@ -229,8 +229,8 @@ function SearchBar() {
       ]);
       const r: SearchResult[] = [
         ...events.map((e) => ({ type: "event" as const, id: e.id, title: e.name, subtitle: `${e.reference} · ${e.status}`, route: `/events/${e.id}` })),
-        ...contacts.map((c) => ({ type: "contact" as const, id: c.id, title: c.name, subtitle: c.role ?? "Contact", route: `/contacts` })),
-        ...venues.map((v) => ({ type: "venue" as const, id: v.id, title: v.name, subtitle: v.address ?? "Venue", route: `/venues` })),
+        ...contacts.map((c) => ({ type: "contact" as const, id: c.id, title: c.name, subtitle: c.role ?? "Contact", route: `/contacts?selected=${encodeURIComponent(c.id)}` })),
+        ...venues.map((v) => ({ type: "venue" as const, id: v.id, title: v.name, subtitle: v.address ?? "Venue", route: `/venues?selected=${encodeURIComponent(v.id)}` })),
       ];
       setResults(r);
       setSelectedIdx(0);

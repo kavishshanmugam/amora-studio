@@ -58,6 +58,14 @@ export function useDeleteEvent() {
   });
 }
 
+export function useRestoreEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => eventsRepo.restore(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["events"] }),
+  });
+}
+
 export function useNextReference() {
   return useQuery({
     queryKey: ["events", "next-reference"],

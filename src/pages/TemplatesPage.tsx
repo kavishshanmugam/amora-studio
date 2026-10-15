@@ -4,7 +4,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { checklistTemplatesRepo } from "../data";
 import { getDb } from "../data";
 import { uid } from "../data/uid";
+import { permanentlyDeleteTemplate } from "../data/permanent-delete";
 import type { ChecklistTemplate } from "../data";
+
+export function confirmTemplateDeletion(
+  templateName: string,
+  confirm: (message: string) => boolean = window.confirm,
+): boolean {
+  return confirm(`Delete “${templateName}” and all of its tasks? This cannot be undone.`);
+}
 
 function useTemplates() {
   return useQuery({
@@ -46,7 +54,7 @@ export function TemplatesPage() {
   });
 
   const deleteTemplate = useMutation({
-    mutationFn: (id: string) => checklistTemplatesRepo.hardDelete(id),
+    mutationFn: async (id: string) => permanentlyDeleteTemplate(await getDb(), id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["templates"] });
       if (selectedId) setSelectedId(null);
@@ -118,7 +126,9 @@ export function TemplatesPage() {
           <TemplateDetail
             template={selected}
             onClose={() => setSelectedId(null)}
-            onDelete={() => deleteTemplate.mutate(selected.id)}
+            onDelete={() => {
+              if (confirmTemplateDeletion(selected.name)) deleteTemplate.mutate(selected.id);
+            }}
           />
         )}
 

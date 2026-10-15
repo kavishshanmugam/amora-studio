@@ -62,6 +62,14 @@ export function useDeleteContact() {
   });
 }
 
+export function useRestoreContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => contactsRepo.restore(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contacts"] }),
+  });
+}
+
 export function useCheckDuplicates(phone?: string, email?: string, name?: string) {
   return useQuery({
     queryKey: ["contacts", "duplicates", phone, email, name],

@@ -10,8 +10,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run --passWithNoTests --exclude e2e/**",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest --exclude e2e/**"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

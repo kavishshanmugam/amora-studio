@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useEvents } from "../hooks/use-events";
 import { useContact } from "../hooks/use-contacts";
 import type { AmoraEvent } from "../data";
+import { eventDateKeys } from "../utils/events-core";
 
 const STATUS_COLORS: Record<string, string> = {
   enquiry: "#3B6FB6",
@@ -73,9 +74,10 @@ export function CalendarPage() {
   for (const e of events) {
     if (e.deleted_at) continue;
     if (["lost", "cancelled"].includes(e.status)) continue;
-    const key = e.start_date;
-    if (!eventsByDate.has(key)) eventsByDate.set(key, []);
-    eventsByDate.get(key)!.push(e);
+    for (const key of eventDateKeys(e.start_date, e.end_date)) {
+      if (!eventsByDate.has(key)) eventsByDate.set(key, []);
+      eventsByDate.get(key)!.push(e);
+    }
   }
 
   const selectedKey = format(selectedDate, "yyyy-MM-dd");
@@ -98,7 +100,7 @@ export function CalendarPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-medium">{format(currentMonth, "MMMM yyyy")}</h2>
             <div className="flex items-center gap-1">
-              <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+              <button aria-label="Previous month" onClick={() => { const next = subMonths(currentMonth, 1); setCurrentMonth(next); setSelectedDate(next); }}
                 className="p-1.5 rounded hover:bg-bg transition-colors">
                 <ChevronLeft size={16} />
               </button>
@@ -106,7 +108,7 @@ export function CalendarPage() {
                 className="px-3 py-1 text-sm rounded hover:bg-bg transition-colors">
                 Today
               </button>
-              <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+              <button aria-label="Next month" onClick={() => { const next = addMonths(currentMonth, 1); setCurrentMonth(next); setSelectedDate(next); }}
                 className="p-1.5 rounded hover:bg-bg transition-colors">
                 <ChevronRight size={16} />
               </button>

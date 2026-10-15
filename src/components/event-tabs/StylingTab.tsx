@@ -3,6 +3,9 @@ import { Plus, Trash2, Package, ShoppingBag, Store, Wrench, ClipboardCheck } fro
 import { useStylingItems, useCreateStylingItem, useUpdateStylingItem, useDeleteStylingItem } from "../../hooks/use-styling-items";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { AmoraEvent, StylingItem } from "../../data";
+import { useInventoryItems } from "../../hooks/use-inventory";
+import { useContacts } from "../../hooks/use-contacts";
+import { useUpdateEvent } from "../../hooks/use-events";
 
 const STATUS_PILLS: Record<string, { label: string; color: string }> = {
   need: { label: "Need", color: "bg-need/10 text-need" },
@@ -34,6 +37,7 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
   const createItem = useCreateStylingItem();
   const updateItem = useUpdateStylingItem();
   const deleteItem = useDeleteStylingItem();
+  const updateEvent = useUpdateEvent();
 
   const filtered = filter === "all" ? items : items.filter((i) => i.status === filter);
   const counts = { need: 0, ordered: 0, have: 0 };
@@ -54,10 +58,10 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
       event_id: event.id,
       name: data.name!,
       category: data.category || null,
-      quantity: data.quantity || 1,
+      quantity: data.quantity ?? 1,
       source: data.source || "buy",
-      inventory_item_id: null,
-      supplier_contact_id: null,
+      inventory_item_id: data.inventory_item_id || null,
+      supplier_contact_id: data.supplier_contact_id || null,
       supplier_text: data.supplier_text || null,
       status: data.source === "own_stock" ? "have" : "need",
       due_back_date: null,
@@ -68,12 +72,25 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
       missing_qty: null,
       damage_note: null,
       notes: data.notes || null,
+      position: items.length,
     });
     setShowForm(false);
   };
 
   return (
     <div className="space-y-4">
+      <div className="bg-surface rounded-xl border border-border p-4 grid grid-cols-2 gap-3">
+        <label className="text-xs text-text-secondary">Event colour
+          <input type="color" defaultValue={event.colour || "#7A1F2B"}
+            onBlur={(e) => updateEvent.mutate({ id: event.id, data: { colour: e.target.value } })}
+            className="mt-1 block h-9 w-full border border-border rounded-lg bg-surface" />
+        </label>
+        <label className="text-xs text-text-secondary">Palette
+          <input defaultValue={event.palette ?? ""} placeholder="#7A1F2B, #F4E3DD"
+            onBlur={(e) => updateEvent.mutate({ id: event.id, data: { palette: e.target.value || null } })}
+            className="mt-1 w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+        </label>
+      </div>
       {/* Filter pills */}
       <div className="flex items-center gap-2">
         {(["all", "need", "ordered", "have"] as Filter[]).map((f) => (
@@ -101,7 +118,7 @@ export function StylingTab({ event }: { event: AmoraEvent }) {
                     <input defaultValue={item.name} onBlur={(e) => { if (e.target.value !== item.name) updateItem.mutate({ id: item.id, data: { name: e.target.value } }); }}
                       className="text-sm font-medium bg-transparent outline-none truncate border-b border-transparent hover:border-border focus:border-brand" />
                     <span className="text-xs text-text-secondary shrink-0">×</span>
-                    <input type="number" defaultValue={item.quantity} onBlur={(e) => { const v = parseInt(e.target.value) || 1; if (v !== item.quantity) updateItem.mutate({ id: item.id, data: { quantity: v } }); }}
+                    <input type="number" min="0.01" step="any" defaultValue={item.quantity} onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v > 0 && v !== item.quantity) updateItem.mutate({ id: item.id, data: { quantity: v } }); }}
                       className="w-8 text-xs text-text-secondary bg-transparent outline-none border-b border-transparent hover:border-border focus:border-brand" />
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_PILLS[item.status]?.color ?? "bg-bg text-text-secondary"}`}>
                       {STATUS_PILLS[item.status]?.label ?? item.status}
@@ -168,17 +185,26 @@ function AddStylingForm({ onAdd, onClose }: {
   const [supplier, setSupplier] = useState("");
   const [cost, setCost] = useState("");
   const [notes, setNotes] = useState("");
+  const [inventoryItemId, setInventoryItemId] = useState("");
+  const [supplierContactId, setSupplierContactId] = useState("");
+  const { data: inventory = [] } = useInventoryItems();
+  const { data: suppliers = [] } = useContacts("supplier");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const parsedQuantity = Number(quantity);
+    const parsedCost = cost === "" ? null : Number(cost);
+    if (!name.trim() || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 ||
+      (parsedCost !== null && (!Number.isFinite(parsedCost) || parsedCost < 0))) return;
     onAdd({
       name: name.trim(),
       category: category || null,
-      quantity: parseInt(quantity) || 1,
+      quantity: parsedQuantity,
       source,
+      inventory_item_id: inventoryItemId || null,
+      supplier_contact_id: supplierContactId || null,
       supplier_text: supplier || null,
-      cost_cents: cost ? Math.round(parseFloat(cost) * 100) : null,
+      cost_cents: parsedCost === null ? null : Math.round(parsedCost * 100),
       notes: notes || null,
     });
   };
@@ -191,7 +217,7 @@ function AddStylingForm({ onAdd, onClose }: {
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
         <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category"
           className="w-32 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
-        <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min="1"
+        <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min="0.01" step="any"
           className="w-16 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand text-right" />
       </div>
       <div className="flex gap-2">
@@ -206,6 +232,22 @@ function AddStylingForm({ onAdd, onClose }: {
           className="flex-1 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
         <input type="number" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost ($)" step="0.01"
           className="w-24 text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-text-secondary">Inventory item
+          <select value={inventoryItemId} onChange={(e) => { setInventoryItemId(e.target.value); if (e.target.value) setSource("own_stock"); }}
+            className="mt-1 w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand">
+            <option value="">Not linked</option>
+            {inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.quantity_owned} owned)</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-text-secondary">Supplier contact
+          <select value={supplierContactId} onChange={(e) => setSupplierContactId(e.target.value)}
+            className="mt-1 w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand">
+            <option value="">Not linked</option>
+            {suppliers.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
+          </select>
+        </label>
       </div>
       <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes"
         className="w-full text-sm px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand" />

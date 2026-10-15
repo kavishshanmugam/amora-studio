@@ -1,4 +1,20 @@
 import type { AmoraEvent } from "../../data";
+import { localDateKey } from "../../utils/events-core";
+
+export function calculateQuoteTotal(subtotal: number, discount: number, priceOverride: number | null): number {
+  return priceOverride ?? Math.max(0, subtotal - discount);
+}
+
+export function calculateQuoteBalance(total: number, deposit: number): number {
+  return Math.max(0, total - deposit);
+}
+
+const SAFE_LOGO_DATA_URL = /^data:image\/(?:png|jpeg|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+export function logoImageHtml(logo: string | undefined): string {
+  if (!logo || !SAFE_LOGO_DATA_URL.test(logo)) return "";
+  return `<img src="${logo}" alt="Logo" style="max-height:50px;max-width:180px;margin-bottom:6px;">`;
+}
 
 // ponytail: print quote opens a new window with branded A4 layout
 // PRD §7.9 — logo, client, event details, lines, total, deposit terms
@@ -19,7 +35,7 @@ async function buildQuoteHTML(event: AmoraEvent): Promise<string> {
 
   // Business settings
   const settings = await db.select<{ key: string; value: string }[]>(
-    "SELECT key, value FROM settings WHERE key IN ('business_name','business_abn','business_phone','business_email','business_instagram','payment_terms','deposit_percent','quote_validity_days')"
+    "SELECT key, value FROM settings WHERE key IN ('business_name','business_abn','business_phone','business_email','business_instagram','payment_terms','deposit_percent','quote_validity_days','business_logo')"
   );
   const s = Object.fromEntries(settings.map((r) => [r.key, r.value]));
 
@@ -41,16 +57,16 @@ async function buildQuoteHTML(event: AmoraEvent): Promise<string> {
 
   const subtotal = lines.reduce((sum, l) => sum + (l.quantity * l.unit_price_cents - l.line_discount_cents), 0);
   const discount = event.quote_discount_cents ?? 0;
-  const total = subtotal - discount;
+  const total = calculateQuoteTotal(subtotal, discount, event.price_override_cents);
   const depositPct = parseInt(s.deposit_percent ?? "30") || 30;
-  const deposit = Math.round(total * depositPct / 100);
+  const deposit = event.deposit_cents ?? Math.round(total * depositPct / 100);
   const validDays = parseInt(s.quote_validity_days ?? "14") || 14;
 
-  const quoteDate = event.quote_sent_date ?? new Date().toISOString().slice(0, 10);
+  const quoteDate = event.quote_sent_date ?? localDateKey();
   const validUntil = event.quote_valid_until ?? (() => {
-    const d = new Date(quoteDate);
+    const d = new Date(`${quoteDate}T00:00:00`);
     d.setDate(d.getDate() + validDays);
-    return d.toISOString().slice(0, 10);
+    return localDateKey(d);
   })();
 
   const fmt = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
@@ -88,6 +104,7 @@ async function buildQuoteHTML(event: AmoraEvent): Promise<string> {
 
 <div class="header">
   <div>
+    ${logoImageHtml(s.business_logo)}
     <div class="brand">${esc(s.business_name ?? "Amora Events")}</div>
     <div class="brand-sub">
       ${s.business_phone ? esc(s.business_phone) + "<br>" : ""}
@@ -158,7 +175,7 @@ ${lines.length > 0 ? `
 <p style="font-size:10px;color:#666;">
   Deposit (${depositPct}%): <strong>${fmt(deposit)}</strong>
   &nbsp;&mdash;&nbsp;
-  Balance due: <strong>${fmt(total - deposit)}</strong>
+  Balance due: <strong>${fmt(calculateQuoteBalance(total, deposit))}</strong>
 </p>
 ` : "<p>No quote lines yet.</p>"}
 
@@ -167,6 +184,13 @@ ${(s.payment_terms || event.bond_cents) ? `
   <h3>Terms</h3>
   ${s.payment_terms ? `<p>${esc(s.payment_terms)}</p>` : ""}
   ${event.bond_cents ? `<p>A refundable bond of ${fmt(event.bond_cents)} applies.</p>` : ""}
+</div>
+` : ""}
+
+${event.quote_notes ? `
+<div class="terms">
+  <h3>Quote notes</h3>
+  <p>${esc(event.quote_notes)}</p>
 </div>
 ` : ""}
 

@@ -5,14 +5,14 @@ import {
   Copy, Trash2, BellOff, Bell, MoreHorizontal, Clock, Users, Table2,
   Tag, FileText, Banknote,
 } from "lucide-react";
-import { useEvent, useUpdateEvent, useDeleteEvent, useCreateEvent } from "../hooks/use-events";
+import { useEvent, useUpdateEvent, useDeleteEvent, useRestoreEvent } from "../hooks/use-events";
 import { useContact } from "../hooks/use-contacts";
 import { useActivityLog } from "../hooks/use-activity-log";
 import type { AmoraEvent, EventStatus, ActivityLog } from "../data";
 import { quoteLinesRepo, paymentsRepo, expensesRepo, eventsRepo } from "../data";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { QuotePaymentsTab } from "../components/event-tabs/QuotePaymentsTab";
+import { QuotePaymentsTab, clampFinancialTotal } from "../components/event-tabs/QuotePaymentsTab";
 import { ChecklistTab } from "../components/event-tabs/ChecklistTab";
 import { ContactsTab } from "../components/event-tabs/ContactsTab";
 import { StylingTab } from "../components/event-tabs/StylingTab";
@@ -23,6 +23,8 @@ import { printDaySheet } from "../components/event-tabs/DaySheet";
 import { printQuote } from "../components/event-tabs/PrintQuote";
 import { ConfirmDialog, PromptDialog } from "../components/shared/ConfirmDialog";
 import { useStockClashes } from "../hooks/use-stock-clashes";
+import { useToast } from "../components/shared/Toast";
+import { runAfterEventDeletion } from "./EventsPage";
 
 // ponytail: single-page event detail, tabs added as M6+ build out
 const EVENT_TABS = [
@@ -67,7 +69,9 @@ export function EventDetailPage() {
   const { data: event, isLoading } = useEvent(id ?? null);
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
-  const createEvent = useCreateEvent();
+  const restoreEvent = useRestoreEvent();
+  const toast = useToast();
+  const queryClient = useQueryClient();
   const tabCounts = useTabCounts(id ?? null);
 
   if (isLoading) return <div className="p-8 text-text-secondary">Loading...</div>;
@@ -95,7 +99,7 @@ export function EventDetailPage() {
     const newName = `${event.name} (copy)`;
     const ref = await eventsRepo.nextReference();
     const { id: _id, created_at: _ca, updated_at: _ua, ...rest } = event;
-    const result = await createEvent.mutateAsync({
+    const result = await eventsRepo.deepDuplicate(event.id, {
       ...rest,
       reference: ref,
       name: newName,
@@ -118,44 +122,8 @@ export function EventDetailPage() {
       lost_reason: null,
       cancel_reason: null,
     });
-    // Copy quote lines, styling items, checklist (unticked)
-    if (result?.id) {
-      const { getDb } = await import("../data/db");
-      const db = await getDb();
-      const uid = () => crypto.randomUUID();
-      const now = new Date().toISOString();
-      // Quote lines
-      const qlines = await db.select<Record<string, unknown>[]>(
-        "SELECT description, quantity, unit, unit_price_cents, line_discount_cents, catalogue_item_id, position FROM quote_lines WHERE event_id = ? ORDER BY position", [event.id]
-      );
-      for (const l of qlines) {
-        await db.execute(
-          "INSERT INTO quote_lines (id, event_id, description, quantity, unit, unit_price_cents, line_discount_cents, catalogue_item_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-          [uid(), result.id, l.description, l.quantity, l.unit, l.unit_price_cents, l.line_discount_cents, l.catalogue_item_id, l.position, now, now]
-        );
-      }
-      // Styling items
-      const sitems = await db.select<Record<string, unknown>[]>(
-        "SELECT name, category, quantity, source, supplier_text, cost_cents, notes, status, position FROM styling_items WHERE event_id = ? ORDER BY position", [event.id]
-      );
-      for (const s of sitems) {
-        await db.execute(
-          "INSERT INTO styling_items (id, event_id, name, category, quantity, source, supplier_text, cost_cents, notes, status, inventory_item_id, due_back_date, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,null,null,?,?,?)",
-          [uid(), result.id, s.name, s.category, s.quantity, s.source, s.supplier_text, s.cost_cents, s.notes, "need", s.position, now, now]
-        );
-      }
-      // Checklist items (all unticked)
-      const citems = await db.select<Record<string, unknown>[]>(
-        "SELECT text, section, due_date, position FROM checklist_items WHERE event_id = ? ORDER BY position", [event.id]
-      );
-      for (const c of citems) {
-        await db.execute(
-          "INSERT INTO checklist_items (id, event_id, text, is_done, due_date, completed_at, section, position, created_at, updated_at) VALUES (?,?,?,0,?,null,?,?,?,?)",
-          [uid(), result.id, c.text, c.due_date, c.section, c.position, now, now]
-        );
-      }
-      navigate(`/events/${result.id}`);
-    }
+    await queryClient.invalidateQueries({ queryKey: ["events"] });
+    navigate(`/events/${result.id}`);
   };
 
   return (
@@ -215,7 +183,13 @@ export function EventDetailPage() {
         message="This event will be moved to the trash. You can restore it within 30 days."
         confirmLabel="Move to trash"
         danger
-        onConfirm={() => { deleteEvent.mutate(event.id); navigate("/events"); }}
+        onConfirm={async () => {
+          const eid = event.id;
+          await runAfterEventDeletion(() => deleteEvent.mutateAsync(eid), () => {
+            toast.show("Event moved to trash", { onUndo: () => restoreEvent.mutate(eid) });
+            navigate("/events");
+          });
+        }}
         onCancel={() => setShowDeleteConfirm(false)}
       />
       <PromptDialog
@@ -408,7 +382,7 @@ function OverviewTab({ event }: { event: AmoraEvent }) {
     queryFn: () => expensesRepo.findByEvent(event.id),
   });
 
-  const price = event.price_override_cents ?? (quoteTotal - event.quote_discount_cents);
+  const price = event.price_override_cents ?? clampFinancialTotal(quoteTotal, event.quote_discount_cents);
   const expenseTotal = expenses.reduce((s, e) => s + e.amount_cents, 0);
   const profit = price - expenseTotal;
   const owing = price - paidTotal;

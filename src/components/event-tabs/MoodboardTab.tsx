@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Image, Link2, Plus, Trash2, ExternalLink, Star } from "lucide-react";
 import { useImages, useCreateImage, useUpdateImage, useDeleteImage } from "../../hooks/use-images";
 import { useVisionLinks, useCreateVisionLink, useDeleteVisionLink } from "../../hooks/use-vision-links";
+import { pickImages } from "../../utils/pick-image";
 import type { AmoraEvent } from "../../data";
 
 export function MoodboardTab({ event }: { event: AmoraEvent }) {
@@ -47,21 +48,21 @@ function ImageGrid({ eventId, images }: { eventId: string; images: ReturnType<ty
   const deleteImage = useDeleteImage();
   const [lightbox, setLightbox] = useState<string | null>(null);
 
-  const handleAdd = () => {
-    // ponytail: in Tauri this would use dialog.open() for file picking
-    // For now, create a placeholder entry the user can see
-    const name = `moodboard-${Date.now()}.jpg`;
-    createImage.mutate({
-      event_id: eventId,
-      kind: "moodboard",
-      file_name: name,
-      caption: null,
-      source_url: null,
-      is_favourite: 0,
-      width: null,
-      height: null,
-      position: images.length,
-    });
+  const handleAdd = async () => {
+    const picked = await pickImages(true);
+    for (let i = 0; i < picked.length; i++) {
+      createImage.mutate({
+        event_id: eventId,
+        kind: "moodboard",
+        file_name: picked[i].name,
+        caption: null,
+        source_url: picked[i].dataUrl,
+        is_favourite: 0,
+        width: null,
+        height: null,
+        position: images.length + i,
+      });
+    }
   };
 
   return (
@@ -82,17 +83,22 @@ function ImageGrid({ eventId, images }: { eventId: string; images: ReturnType<ty
         <div className="grid grid-cols-3 gap-3">
           {images.map((img) => (
             <div key={img.id} className="group relative">
-              {/* ponytail: placeholder tile since we can't load local files in browser mode */}
               <div
-                className="aspect-square rounded-lg bg-bg border border-border flex items-center justify-center cursor-pointer hover:border-brand transition-colors"
+                className="aspect-square rounded-lg bg-bg border border-border overflow-hidden cursor-pointer hover:border-brand transition-colors"
                 onClick={() => setLightbox(img.id)}
               >
-                <div className="text-center">
-                  <Image size={24} className="mx-auto text-text-secondary/30" />
-                  <p className="text-[10px] text-text-secondary mt-1 truncate max-w-[100px] mx-auto">
-                    {img.file_name}
-                  </p>
-                </div>
+                {img.source_url ? (
+                  <img src={img.source_url} alt={img.file_name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <Image size={24} className="mx-auto text-text-secondary/30" />
+                      <p className="text-[10px] text-text-secondary mt-1 truncate max-w-[100px] mx-auto">
+                        {img.file_name}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Overlay actions */}
@@ -136,8 +142,12 @@ function ImageGrid({ eventId, images }: { eventId: string; images: ReturnType<ty
               if (!img) return null;
               return (
                 <div className="space-y-3">
-                  <div className="aspect-video bg-bg rounded-lg flex items-center justify-center">
-                    <Image size={48} className="text-text-secondary/20" />
+                  <div className="aspect-video bg-bg rounded-lg flex items-center justify-center overflow-hidden">
+                    {img.source_url ? (
+                      <img src={img.source_url} alt={img.file_name} className="w-full h-full object-contain" />
+                    ) : (
+                      <Image size={48} className="text-text-secondary/20" />
+                    )}
                   </div>
                   <input
                     value={img.caption ?? ""}

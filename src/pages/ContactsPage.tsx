@@ -1,10 +1,15 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useId } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Plus, Search, Phone, Mail, X, ChevronRight, MapPin, PartyPopper } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from "../hooks/use-contacts";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useRestoreContact } from "../hooks/use-contacts";
 import { ConfirmDialog } from "../components/shared/ConfirmDialog";
+import { useToast } from "../components/shared/Toast";
 import type { Contact } from "../data";
+import { useSetting } from "../hooks/use-settings";
+import { parseSettingList } from "../utils/events-core";
+
+const DEFAULT_SUPPLIER_ROLES = ["Florist", "Balloon supplier", "Hire company", "Cake", "Signage", "Helper", "Photographer", "Videographer", "DJ", "Other"];
 
 type Tab = "all" | "client" | "supplier" | "crew";
 
@@ -16,14 +21,17 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export function ContactsPage() {
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("selected"));
+  useEffect(() => setSelectedId(searchParams.get("selected")), [searchParams]);
 
   const filter = tab === "all" ? undefined : tab;
-  const { data: contacts = [], isLoading } = useContacts(filter);
+  const { data: contacts = [], isLoading, isError, error, refetch } = useContacts(filter);
+  const [actionError, setActionError] = useState<string | null>(null);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
@@ -41,22 +49,36 @@ export function ContactsPage() {
   const selected = selectedId ? contacts.find((c) => c.id === selectedId) : null;
 
   const handleCreate = async (data: ContactFormData) => {
-    await createContact.mutateAsync(formToContact(data));
-    setShowForm(false);
+    setActionError(null);
+    try {
+      await createContact.mutateAsync(formToContact(data));
+      setShowForm(false);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not create contact.");
+    }
   };
 
   const handleUpdate = async (data: ContactFormData) => {
     if (!editingId) return;
-    await updateContact.mutateAsync({ id: editingId, data: formToContact(data) });
-    setEditingId(null);
+    setActionError(null);
+    try {
+      await updateContact.mutateAsync({ id: editingId, data: formToContact(data) });
+      setEditingId(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not update contact.");
+    }
   };
 
+  const restoreContact = useRestoreContact();
+  const toast = useToast();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const handleDelete = (id: string) => setDeleteId(id);
   const confirmDelete = async () => {
     if (deleteId) {
-      await deleteContact.mutateAsync(deleteId);
-      if (selectedId === deleteId) setSelectedId(null);
+      const did = deleteId;
+      await deleteContact.mutateAsync(did);
+      if (selectedId === did) setSelectedId(null);
+      toast.show("Contact moved to trash", { onUndo: () => restoreContact.mutate(did) });
     }
     setDeleteId(null);
   };
@@ -82,6 +104,7 @@ export function ContactsPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
+              aria-pressed={tab === t.key}
               className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                 tab === t.key
                   ? "bg-surface text-text-primary font-medium shadow-sm"
@@ -96,6 +119,7 @@ export function ContactsPage() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
           <input
             type="text"
+            aria-label="Search contacts"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search contacts..."
@@ -110,6 +134,11 @@ export function ContactsPage() {
         <div className="flex-1 bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
           {isLoading ? (
             <div className="p-8 text-center text-text-secondary">Loading...</div>
+          ) : isError ? (
+            <div role="alert" className="p-8 text-center">
+              <p className="text-danger text-sm">{error instanceof Error ? error.message : "Could not load contacts."}</p>
+              <button onClick={() => refetch()} className="mt-3 text-sm text-brand underline">Try again</button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="p-8 text-center">
               <Users size={48} className="mx-auto text-text-secondary/30 mb-4" />
@@ -179,6 +208,7 @@ export function ContactsPage() {
               </div>
               <button
                 onClick={() => setSelectedId(null)}
+                aria-label="Close contact details"
                 className="text-text-secondary hover:text-text-primary"
               >
                 <X size={16} />
@@ -258,6 +288,7 @@ export function ContactsPage() {
         {/* Create / Edit form */}
         {(showForm || editingId) && (
           <div className="w-80 bg-surface rounded-xl border border-border p-5 overflow-y-auto shrink-0">
+            {actionError && <p role="alert" className="mb-3 text-sm text-danger">{actionError}</p>}
             <ContactForm
               contact={editingId ? contacts.find((c) => c.id === editingId) : undefined}
               onSave={editingId ? handleUpdate : handleCreate}
@@ -320,6 +351,11 @@ function ContactForm({
   onSave: (data: ContactFormData) => void;
   onCancel: () => void;
 }) {
+  const perId = useId();
+  const notesId = useId();
+  const rolesId = useId();
+  const { data: supplierRolesSetting } = useSetting("supplier_roles");
+  const supplierRoles = parseSettingList(supplierRolesSetting, DEFAULT_SUPPLIER_ROLES);
   const [form, setForm] = useState<ContactFormData>({
     name: contact?.name ?? "",
     business_name: contact?.business_name ?? "",
@@ -352,7 +388,7 @@ function ContactForm({
         {contact ? "Edit contact" : "New contact"}
       </h3>
 
-      <Input label="Name *" value={form.name} onChange={(v) => set("name", v)} autoFocus />
+      <Input label="Name *" value={form.name} onChange={(v) => set("name", v)} autoFocus required />
       <Input label="Business name" value={form.business_name} onChange={(v) => set("business_name", v)} />
 
       <div className="flex gap-3">
@@ -361,7 +397,8 @@ function ContactForm({
         <Checkbox label="Crew" checked={form.is_crew} onChange={(v) => set("is_crew", v)} />
       </div>
 
-      <Input label="Role" value={form.role} onChange={(v) => set("role", v)} placeholder="e.g. Florist, Helper" />
+      <Input label="Role" value={form.role} onChange={(v) => set("role", v)} placeholder="e.g. Florist, Helper" list={rolesId} />
+      <datalist id={rolesId}>{supplierRoles.map((role) => <option key={role} value={role} />)}</datalist>
       <Input label="Phone" value={form.phone} onChange={(v) => set("phone", v)} />
       <Input label="Email" value={form.email} onChange={(v) => set("email", v)} type="email" />
       <Input label="Address" value={form.address} onChange={(v) => set("address", v)} />
@@ -371,11 +408,12 @@ function ContactForm({
       {form.is_crew && (
         <div className="flex gap-2">
           <div className="flex-1">
-            <Input label="Rate ($)" value={form.crew_rate_cents} onChange={(v) => set("crew_rate_cents", v)} type="number" />
+            <Input label="Rate ($)" value={form.crew_rate_cents} onChange={(v) => set("crew_rate_cents", v)} type="number" min="0" step="0.01" />
           </div>
           <div className="w-24">
-            <label className="text-xs text-text-secondary">Per</label>
+            <label htmlFor={perId} className="text-xs text-text-secondary">Per</label>
             <select
+              id={perId}
               value={form.crew_rate_unit}
               onChange={(e) => set("crew_rate_unit", e.target.value)}
               className="w-full text-sm mt-1 px-2 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface"
@@ -389,8 +427,9 @@ function ContactForm({
       )}
 
       <div>
-        <label className="text-xs text-text-secondary">Notes</label>
+        <label htmlFor={notesId} className="text-xs text-text-secondary">Notes</label>
         <textarea
+          id={notesId}
           value={form.notes}
           onChange={(e) => set("notes", e.target.value)}
           rows={3}
@@ -426,6 +465,10 @@ function Input({
   placeholder,
   type = "text",
   autoFocus,
+  required,
+  min,
+  step,
+  list,
 }: {
   label: string;
   value: string;
@@ -433,16 +476,26 @@ function Input({
   placeholder?: string;
   type?: string;
   autoFocus?: boolean;
+  required?: boolean;
+  min?: string;
+  step?: string;
+  list?: string;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="text-xs text-text-secondary">{label}</label>
+      <label htmlFor={id} className="text-xs text-text-secondary">{label}</label>
       <input
+        id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        required={required}
+        min={min}
+        step={step}
+        list={list}
         className="w-full text-sm mt-1 px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface"
       />
     </div>

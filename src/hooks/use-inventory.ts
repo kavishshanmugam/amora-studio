@@ -42,3 +42,11 @@ export function useDeleteInventoryItem() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory"] }),
   });
 }
+
+export function useRestoreInventoryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => inventoryRepo.restore(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory"] }),
+  });
+}

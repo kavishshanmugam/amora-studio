@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventsRepo, contactsRepo, venuesRepo, catalogueRepo, inventoryRepo } from "../data";
 import type { AmoraEvent, Contact, Venue, CatalogueItem, InventoryItem } from "../data";
+import { getDb } from "../data/db";
+import { permanentlyDelete } from "../data/permanent-delete";
 
 export type TrashItem = {
   id: string;
@@ -8,6 +10,18 @@ export type TrashItem = {
   type: "event" | "contact" | "venue" | "catalogue" | "inventory";
   deleted_at: string;
 };
+
+const PERMANENT_DELETE_KEYS: Record<TrashItem["type"], string[]> = {
+  event: ["events", "quote-lines", "payments", "paid-total", "expenses", "styling-items", "checklist", "run-sheet", "event-contacts", "images", "vision-links", "instagram-post", "activity-log", "reminders"],
+  contact: ["contacts", "venues", "events", "event-contacts", "styling-items", "expenses", "run-sheet"],
+  venue: ["venues", "events"],
+  catalogue: ["catalogue", "quote-lines"],
+  inventory: ["inventory", "catalogue", "styling-items"],
+};
+
+export function permanentDeleteInvalidationKeys(type: TrashItem["type"]): string[][] {
+  return ["trash", ...PERMANENT_DELETE_KEYS[type]].map((key) => [key]);
+}
 
 async function fetchAllDeleted(): Promise<TrashItem[]> {
   const [events, contacts, venues, catalogue, inventory] = await Promise.all([
@@ -60,8 +74,12 @@ export function useRestoreItem() {
 export function usePermanentDelete() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, type }: { id: string; type: TrashItem["type"] }) =>
-      getRepo(type).hardDelete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["trash"] }),
+    mutationFn: async ({ id, type }: { id: string; type: TrashItem["type"] }) =>
+      permanentlyDelete(await getDb(), type, id),
+    onSuccess: (_result, { type }) => {
+      for (const queryKey of permanentDeleteInvalidationKeys(type)) {
+        void qc.invalidateQueries({ queryKey });
+      }
+    },
   });
 }

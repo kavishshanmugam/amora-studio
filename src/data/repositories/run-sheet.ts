@@ -22,7 +22,7 @@ class RunSheetRepository extends BaseRepository<RunSheetItem> {
   async findByEvent(eventId: string): Promise<RunSheetItem[]> {
     const db = await getDb();
     return db.select<RunSheetItem[]>(
-      "SELECT * FROM run_sheet_items WHERE event_id = ? ORDER BY date, time, position",
+      "SELECT * FROM run_sheet_items WHERE event_id = ? ORDER BY position, date, time",
       [eventId]
     );
   }

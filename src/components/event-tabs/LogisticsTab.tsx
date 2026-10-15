@@ -1,4 +1,5 @@
-import { MapPin, Clock, Truck, Plus, Trash2, Wand2, Users, Phone } from "lucide-react";
+import { MapPin, Clock, Truck, Plus, Trash2, Wand2, Users, Phone, GripVertical } from "lucide-react";
+import { useState } from "react";
 import { useContact } from "../../hooks/use-contacts";
 import { useEventContacts } from "../../hooks/use-event-contacts";
 import { useStylingItems } from "../../hooks/use-styling-items";
@@ -6,26 +7,53 @@ import type { AmoraEvent, EventContact } from "../../data";
 import { runSheetRepo } from "../../data";
 import type { RunSheetItem } from "../../data";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDragReorder } from "../../hooks/use-drag-reorder";
+import { useUpdateEvent } from "../../hooks/use-events";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 export function LogisticsTab({ event }: { event: AmoraEvent }) {
   return (
     <div className="space-y-4">
       {event.venue_id && <VenueAccess venueId={event.venue_id} event={event} />}
       <TimesCard event={event} />
-      {(event.travel_km != null || event.travel_notes) && (
-        <div className="bg-surface rounded-xl border border-border p-4">
-          <h4 className="text-xs uppercase tracking-wider text-text-secondary font-medium mb-2 flex items-center gap-2">
-            <Truck size={14} /> Travel
-          </h4>
-          <div className="text-sm space-y-1">
-            {event.travel_km != null && <p>{event.travel_km} km</p>}
-            {event.travel_notes && <p className="text-text-secondary">{event.travel_notes}</p>}
-          </div>
-        </div>
-      )}
+      <OperationalDetails event={event} />
       <RunSheetSection event={event} />
       <CrewSection event={event} />
       <PackListSection event={event} />
+    </div>
+  );
+}
+
+function OperationalDetails({ event }: { event: AmoraEvent }) {
+  const updateEvent = useUpdateEvent();
+  const save = (data: Partial<AmoraEvent>) => updateEvent.mutate({ id: event.id, data });
+  return (
+    <div className="bg-surface rounded-xl border border-border p-4">
+      <h4 className="text-xs uppercase tracking-wider text-text-secondary font-medium mb-3 flex items-center gap-2">
+        <Truck size={14} /> Access & travel
+      </h4>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label className="text-xs text-text-secondary">Access from
+          <input type="time" defaultValue={event.access_from ?? ""} onBlur={(e) => save({ access_from: e.target.value || null })}
+            className="block w-full mt-1 text-sm px-3 py-2 border border-border rounded-lg bg-surface" />
+        </label>
+        <label className="text-xs text-text-secondary">Access until
+          <input type="time" defaultValue={event.access_until ?? ""} onBlur={(e) => save({ access_until: e.target.value || null })}
+            className="block w-full mt-1 text-sm px-3 py-2 border border-border rounded-lg bg-surface" />
+        </label>
+        <label className="text-xs text-text-secondary">Travel (km)
+          <input type="number" min="0" step="any" defaultValue={event.travel_km ?? ""}
+            onBlur={(e) => {
+              const value = e.target.value === "" ? null : Number(e.target.value);
+              if (value === null || (Number.isFinite(value) && value >= 0)) save({ travel_km: value });
+            }}
+            className="block w-full mt-1 text-sm px-3 py-2 border border-border rounded-lg bg-surface" />
+        </label>
+        <label className="text-xs text-text-secondary">Travel notes
+          <input defaultValue={event.travel_notes ?? ""} onBlur={(e) => save({ travel_notes: e.target.value.trim() || null })}
+            className="block w-full mt-1 text-sm px-3 py-2 border border-border rounded-lg bg-surface" />
+        </label>
+      </div>
     </div>
   );
 }
@@ -34,6 +62,7 @@ export function LogisticsTab({ event }: { event: AmoraEvent }) {
 
 function RunSheetSection({ event }: { event: AmoraEvent }) {
   const qc = useQueryClient();
+  const [deleteTarget, setDeleteTarget] = useState<RunSheetItem | null>(null);
   const { data: items = [] } = useQuery({
     queryKey: ["run-sheet", event.id],
     queryFn: () => runSheetRepo.findByEvent(event.id),
@@ -52,6 +81,10 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
   const deleteItem = useMutation({
     mutationFn: (id: string) => runSheetRepo.hardDelete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["run-sheet", event.id] }),
+  });
+
+  const drag = useDragReorder("run_sheet_items", () => {
+    qc.invalidateQueries({ queryKey: ["run-sheet", event.id] });
   });
 
   const handleAdd = () => {
@@ -107,6 +140,7 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
+              <th className="w-6" />
               <th className="text-left py-2 font-medium w-20">Time</th>
               <th className="text-left py-2 font-medium">Task</th>
               <th className="text-left py-2 font-medium w-32">Who / Notes</th>
@@ -114,8 +148,20 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-b border-border/50 group">
+            {items.map((item, index) => (
+              <tr key={item.id} tabIndex={0} aria-label={`${item.task || "Run sheet item"}. Reorder with Alt+Arrow keys`}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                  e.preventDefault();
+                  const target = items[index + (e.key === "ArrowUp" ? -1 : 1)];
+                  if (target) void drag.moveItem(item.id, target.id, items);
+                }}
+                className={`border-b border-border/50 group ${drag.dragId === item.id ? "opacity-50" : ""}`}
+                draggable onDragStart={() => drag.onDragStart(item.id)} onDragOver={drag.onDragOver}
+                onDrop={() => drag.onDrop(item.id, items)} onDragEnd={drag.onDragEnd}>
+                <td className="py-1.5 cursor-grab text-text-secondary/40 hover:text-text-secondary">
+                  <GripVertical size={14} />
+                </td>
                 <td className="py-1.5">
                   <input type="time" value={item.time ?? ""} onChange={(e) => updateItem.mutate({ id: item.id, data: { time: e.target.value } })}
                     className="w-full text-sm bg-transparent outline-none" />
@@ -131,7 +177,7 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
                     className="w-full text-sm bg-transparent outline-none text-text-secondary" />
                 </td>
                 <td className="py-1.5">
-                  <button onClick={() => deleteItem.mutate(item.id)}
+                  <button type="button" aria-label={`Remove ${item.task || "run sheet item"}`} onClick={() => setDeleteTarget(item)}
                     className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger p-1">
                     <Trash2 size={12} />
                   </button>
@@ -143,6 +189,18 @@ function RunSheetSection({ event }: { event: AmoraEvent }) {
       ) : (
         <p className="text-sm text-text-secondary text-center py-4">No run sheet items yet.</p>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Remove run sheet item?"
+        message="Remove this item from the run sheet?"
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          if (deleteTarget) deleteItem.mutate(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  outputDir: "./pw-output",
+  outputDir: process.env.TEMP ? `${process.env.TEMP}/amora-pw-output` : "./pw-results",
   timeout: 30_000,
   retries: 0,
   use: {
@@ -16,9 +16,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
+    command: "npx vite --port 5173",
     port: 5173,
     reuseExistingServer: true,
-    timeout: 30_000,
+    timeout: 60_000,
   },
 });

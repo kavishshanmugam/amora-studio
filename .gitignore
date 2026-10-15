@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-build/
+src-tauri/target/
 .claude/
 loop/
 docs/
@@ -8,5 +10,8 @@ scripts/
 .DS_Store
 Thumbs.db
 pw-output/
+pw-results/
 test-results/
-e2e/
+qa-output/
+.hermes/
+QA_REPORT.md

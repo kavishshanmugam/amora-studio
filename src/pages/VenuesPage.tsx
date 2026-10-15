@@ -1,18 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState, useId } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MapPin, Plus, Search, X, ChevronRight } from "lucide-react";
-import { useVenues, useCreateVenue, useUpdateVenue, useDeleteVenue } from "../hooks/use-venues";
+import { useVenues, useCreateVenue, useUpdateVenue, useDeleteVenue, useRestoreVenue } from "../hooks/use-venues";
 import { ConfirmDialog } from "../components/shared/ConfirmDialog";
+import { useToast } from "../components/shared/Toast";
 import type { Venue } from "../data";
 import { ContactLookup } from "../components/shared/ContactLookup";
 import { useContact } from "../hooks/use-contacts";
 
 export function VenuesPage() {
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("selected"));
+  useEffect(() => setSelectedId(searchParams.get("selected")), [searchParams]);
 
-  const { data: venues = [], isLoading } = useVenues();
+  const { data: venues = [], isLoading, isError, error, refetch } = useVenues();
+  const [actionError, setActionError] = useState<string | null>(null);
   const createVenue = useCreateVenue();
   const updateVenue = useUpdateVenue();
   const deleteVenue = useDeleteVenue();
@@ -28,22 +33,36 @@ export function VenuesPage() {
   const selected = selectedId ? venues.find((v) => v.id === selectedId) : null;
 
   const handleCreate = async (data: VenueFormData) => {
-    await createVenue.mutateAsync(formToVenue(data));
-    setShowForm(false);
+    setActionError(null);
+    try {
+      await createVenue.mutateAsync(formToVenue(data));
+      setShowForm(false);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not create venue.");
+    }
   };
 
   const handleUpdate = async (data: VenueFormData) => {
     if (!editingId) return;
-    await updateVenue.mutateAsync({ id: editingId, data: formToVenue(data) });
-    setEditingId(null);
+    setActionError(null);
+    try {
+      await updateVenue.mutateAsync({ id: editingId, data: formToVenue(data) });
+      setEditingId(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not update venue.");
+    }
   };
 
+  const restoreVenue = useRestoreVenue();
+  const toast = useToast();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const handleDelete = (id: string) => setDeleteId(id);
   const confirmDelete = async () => {
     if (deleteId) {
-      await deleteVenue.mutateAsync(deleteId);
-      if (selectedId === deleteId) setSelectedId(null);
+      const did = deleteId;
+      await deleteVenue.mutateAsync(did);
+      if (selectedId === did) setSelectedId(null);
+      toast.show("Venue moved to trash", { onUndo: () => restoreVenue.mutate(did) });
     }
     setDeleteId(null);
   };
@@ -65,6 +84,7 @@ export function VenuesPage() {
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
         <input
           type="text"
+          aria-label="Search venues"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search venues..."
@@ -76,6 +96,11 @@ export function VenuesPage() {
         <div className="flex-1 bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
           {isLoading ? (
             <div className="p-8 text-center text-text-secondary">Loading...</div>
+          ) : isError ? (
+            <div role="alert" className="p-8 text-center">
+              <p className="text-danger text-sm">{error instanceof Error ? error.message : "Could not load venues."}</p>
+              <button onClick={() => refetch()} className="mt-3 text-sm text-brand underline">Try again</button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="p-8 text-center">
               <MapPin size={48} className="mx-auto text-text-secondary/30 mb-4" />
@@ -125,6 +150,7 @@ export function VenuesPage() {
 
         {(showForm || editingId) && (
           <div className="w-80 bg-surface rounded-xl border border-border p-5 overflow-y-auto shrink-0">
+            {actionError && <p role="alert" className="mb-3 text-sm text-danger">{actionError}</p>}
             <VenueForm
               venue={editingId ? venues.find((v) => v.id === editingId) : undefined}
               onSave={editingId ? handleUpdate : handleCreate}
@@ -133,7 +159,7 @@ export function VenuesPage() {
           </div>
         )}
       </div>
-      <ConfirmDialog open={deleteId !== null} title="Delete venue?" message="This venue will be permanently deleted."
+      <ConfirmDialog open={deleteId !== null} title="Move venue to trash?" message="You can restore this venue from Settings, or use Undo after moving it."
         confirmLabel="Delete" danger onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
     </div>
   );
@@ -153,7 +179,7 @@ function VenueDetail({ venue, onEdit, onDelete, onClose }: {
         <div className="w-12 h-12 rounded-full bg-info/10 text-info flex items-center justify-center">
           <MapPin size={20} />
         </div>
-        <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
+        <button onClick={onClose} aria-label="Close venue details" className="text-text-secondary hover:text-text-primary">
           <X size={16} />
         </button>
       </div>
@@ -233,6 +259,9 @@ function VenueForm({ venue, onSave, onCancel }: {
   onSave: (data: VenueFormData) => void;
   onCancel: () => void;
 }) {
+  const nameId = useId();
+  const [nameError, setNameError] = useState("");
+  const { data: existingCoordinator } = useContact(venue?.coordinator_contact_id ?? null);
   const [form, setForm] = useState<VenueFormData>({
     name: venue?.name ?? "",
     address: venue?.address ?? "",
@@ -252,19 +281,26 @@ function VenueForm({ venue, onSave, onCancel }: {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) {
+      setNameError("Venue name is required.");
+      document.getElementById(nameId)?.focus();
+      return;
+    }
+    setNameError("");
     onSave(form);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} noValidate className="space-y-3">
       <h3 className="text-sm font-medium mb-2">{venue ? "Edit venue" : "New venue"}</h3>
-      <Input label="Name *" value={form.name} onChange={(v) => set("name", v)} autoFocus />
+      <Input id={nameId} label="Name *" value={form.name} onChange={(v) => { set("name", v); if (v.trim()) setNameError(""); }}
+        autoFocus required invalid={Boolean(nameError)} describedBy={nameError ? `${nameId}-error` : undefined} />
+      {nameError && <p id={`${nameId}-error`} role="alert" className="text-xs text-danger -mt-2">{nameError}</p>}
       <Input label="Address" value={form.address} onChange={(v) => set("address", v)} />
       <ContactLookup
         label="Venue coordinator"
         value={form.coordinator_contact_id}
-        displayName={form.coordinator_name}
+        displayName={form.coordinator_name || existingCoordinator?.name || ""}
         onSelect={(c) => { set("coordinator_contact_id", c.id); set("coordinator_name", c.name); }}
         onClear={() => { set("coordinator_contact_id", null); set("coordinator_name", ""); }}
       />
@@ -288,13 +324,17 @@ function VenueForm({ venue, onSave, onCancel }: {
   );
 }
 
-function Input({ label, value, onChange, placeholder, autoFocus }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean;
+function Input({ id: suppliedId, label, value, onChange, placeholder, autoFocus, required, invalid, describedBy }: {
+  id?: string; label: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean;
+  required?: boolean; invalid?: boolean; describedBy?: string;
 }) {
+  const generatedId = useId();
+  const id = suppliedId ?? generatedId;
   return (
     <div>
-      <label className="text-xs text-text-secondary">{label}</label>
-      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
+      <label htmlFor={id} className="text-xs text-text-secondary">{label}</label>
+      <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
+        required={required} aria-invalid={invalid || undefined} aria-describedby={describedBy}
         className="w-full text-sm mt-1 px-3 py-1.5 border border-border rounded-lg outline-none focus:border-brand bg-surface" />
     </div>
   );
@@ -303,10 +343,11 @@ function Input({ label, value, onChange, placeholder, autoFocus }: {
 function TextArea({ label, value, onChange, placeholder }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="text-xs text-text-secondary">{label}</label>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3}
+      <label htmlFor={id} className="text-xs text-text-secondary">{label}</label>
+      <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3}
         className="w-full text-sm mt-1 px-3 py-2 border border-border rounded-lg outline-none focus:border-brand bg-surface resize-none" />
     </div>
   );

@@ -2,12 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { catalogueRepo } from "../data";
 import type { CatalogueItem } from "../data";
 import { getDb } from "../data";
-import { uid } from "../data/uid";
 
-export function useCatalogueItems() {
+export function useCatalogueItems(includeInactive = false) {
   return useQuery({
-    queryKey: ["catalogue"],
-    queryFn: () => catalogueRepo.findActive(),
+    queryKey: ["catalogue", { includeInactive }],
+    queryFn: () => includeInactive ? catalogueRepo.findAvailable() : catalogueRepo.findActive(),
   });
 }
 
@@ -52,6 +51,14 @@ export function useDeleteCatalogueItem() {
   });
 }
 
+export function useRestoreCatalogueItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => catalogueRepo.restore(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalogue"] }),
+  });
+}
+
 /** Get package items (the line items inside a package). */
 export function usePackageItems(packageId: string | null) {
   return useQuery({
@@ -63,7 +70,9 @@ export function usePackageItems(packageId: string | null) {
         `SELECT cpi.id, cpi.catalogue_item_id, cpi.quantity, ci.name, ci.price_cents
          FROM catalogue_package_items cpi
          JOIN catalogue_items ci ON ci.id = cpi.catalogue_item_id
-         WHERE cpi.package_id = ?`,
+         WHERE cpi.package_id = ?
+           AND ci.active = 1
+           AND ci.deleted_at IS NULL`,
         [packageId]
       );
     },
@@ -75,12 +84,17 @@ export function useAddPackageItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ packageId, catalogueItemId, quantity }: { packageId: string; catalogueItemId: string; quantity: number }) => {
-      const db = await getDb();
-      const id = uid();
-      await db.execute(
-        "INSERT INTO catalogue_package_items (id, package_id, catalogue_item_id, quantity) VALUES (?, ?, ?, ?)",
-        [id, packageId, catalogueItemId, quantity]
-      );
+      await catalogueRepo.addPackageItem(packageId, catalogueItemId, quantity);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalogue"] }),
+  });
+}
+
+export function useRemovePackageItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await catalogueRepo.removePackageItem(id);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["catalogue"] }),
   });

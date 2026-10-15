@@ -33,10 +33,19 @@ export async function runMigrations(): Promise<void> {
   for (const m of migrations) {
     if (appliedSet.has(m.name)) continue;
     console.log(`[db] Applying migration: ${m.name}`);
-    for (const stmt of m.statements) {
-      await db.execute(stmt);
+    await db.execute("BEGIN IMMEDIATE TRANSACTION");
+    try {
+      // SQLite supports transactional ALTER TABLE, so schema changes and their
+      // tracking row either both commit or both roll back.
+      for (const stmt of m.statements) {
+        await db.execute(stmt);
+      }
+      await db.execute("INSERT INTO _migrations (name) VALUES (?)", [m.name]);
+      await db.execute("COMMIT");
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
     }
-    await db.execute("INSERT INTO _migrations (name) VALUES (?)", [m.name]);
   }
 }
 
@@ -48,7 +57,9 @@ interface Migration {
 async function getMigrations(): Promise<Migration[]> {
   // Import migrations eagerly — Vite handles the bundling
   const m001 = await import("./migrations/001_initial");
-  return [m001.default];
+  const m002 = await import("./migrations/002_styling_position");
+  const m003 = await import("./migrations/003_reminder_event_type_unique");
+  return [m001.default, m002.default, m003.default];
 }
 
 /** Initialize the database: run migrations, seed dev data, purge old trash. */
@@ -59,6 +70,9 @@ export async function initDatabase(): Promise<void> {
   await seedDevData();
   // Auto-purge: permanently delete events trashed more than 30 days ago
   await purgeOldTrash();
+  // Materialize notification rules after the database is current and seeded.
+  const { remindersRepo } = await import("./repositories/reminders");
+  await remindersRepo.generateFromRules();
 }
 
 async function purgeOldTrash(): Promise<void> {
@@ -69,12 +83,7 @@ async function purgeOldTrash(): Promise<void> {
     [cutoff]
   );
   if (trashed.length === 0) return;
-  const ids = trashed.map((e) => e.id);
-  const placeholders = ids.map(() => "?").join(",");
-  // Clean up child records then the event itself
-  for (const table of ["quote_lines", "payments", "expenses", "styling_items", "checklist_items", "run_sheet_items", "event_contacts", "images", "vision_links", "instagram_posts", "activity_log", "reminders"]) {
-    await db.execute(`DELETE FROM ${table} WHERE event_id IN (${placeholders})`, ids);
-  }
-  await db.execute(`DELETE FROM events WHERE id IN (${placeholders})`, ids);
-  console.log(`[db] Purged ${ids.length} trashed event(s) older than 30 days.`);
+  const { permanentlyDelete } = await import("./permanent-delete");
+  for (const event of trashed) await permanentlyDelete(db, "event", event.id);
+  console.log(`[db] Purged ${trashed.length} trashed event(s) older than 30 days.`);
 }

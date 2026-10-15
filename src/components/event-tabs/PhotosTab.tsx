@@ -3,6 +3,8 @@ import { Camera, Star, Trash2, Plus, Instagram, Copy, Hash, Check, ExternalLink,
 import { useImages, useCreateImage, useUpdateImage, useDeleteImage } from "../../hooks/use-images";
 import { useInstagramPost, useCreateInstagramPost, useUpdateInstagramPost } from "../../hooks/use-instagram-post";
 import { PromptDialog } from "../shared/ConfirmDialog";
+import { localDateKey } from "../../utils/events-core";
+import { pickImages } from "../../utils/pick-image";
 import type { AmoraEvent } from "../../data";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,20 +25,21 @@ function SetupPhotos({ event }: { event: AmoraEvent }) {
   const updateImage = useUpdateImage();
   const deleteImage = useDeleteImage();
 
-  const handleAdd = () => {
-    // ponytail: Tauri dialog.open() for file picking in real app
-    const name = `photo-${Date.now()}.jpg`;
-    createImage.mutate({
-      event_id: event.id,
-      kind: "photo",
-      file_name: name,
-      caption: null,
-      source_url: null,
-      is_favourite: 0,
-      width: null,
-      height: null,
-      position: photos.length,
-    });
+  const handleAdd = async () => {
+    const picked = await pickImages(true);
+    for (let i = 0; i < picked.length; i++) {
+      createImage.mutate({
+        event_id: event.id,
+        kind: "photo",
+        file_name: picked[i].name,
+        caption: null,
+        source_url: picked[i].dataUrl,
+        is_favourite: 0,
+        width: null,
+        height: null,
+        position: photos.length + i,
+      });
+    }
   };
 
   const favCount = photos.filter((p) => p.is_favourite).length;
@@ -63,13 +66,19 @@ function SetupPhotos({ event }: { event: AmoraEvent }) {
         <div className="grid grid-cols-4 gap-2">
           {photos.map((photo) => (
             <div key={photo.id} className="group relative">
-              <div className="aspect-square rounded-lg bg-bg border border-border flex items-center justify-center">
-                <div className="text-center">
-                  <Image size={20} className="mx-auto text-text-secondary/30" />
-                  <p className="text-[9px] text-text-secondary mt-1 truncate max-w-[80px] mx-auto">
-                    {photo.file_name}
-                  </p>
-                </div>
+              <div className="aspect-square rounded-lg bg-bg border border-border overflow-hidden">
+                {photo.source_url ? (
+                  <img src={photo.source_url} alt={photo.file_name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <Image size={20} className="mx-auto text-text-secondary/30" />
+                      <p className="text-[9px] text-text-secondary mt-1 truncate max-w-[80px] mx-auto">
+                        {photo.file_name}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
@@ -329,11 +338,11 @@ function InstagramPlanner({ event }: { event: AmoraEvent }) {
 
       <PromptDialog open={showPostUrlPrompt} title="Post URL (optional)" placeholder="https://instagram.com/p/..."
         onSubmit={(url) => {
-          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: new Date().toISOString().slice(0, 10), post_url: url || null } });
+          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: localDateKey(), post_url: url || null } });
           setShowPostUrlPrompt(false);
         }}
         onCancel={() => {
-          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: new Date().toISOString().slice(0, 10), post_url: null } });
+          updatePost.mutate({ id: post.id, eventId: event.id, data: { status: "posted", posted_date: localDateKey(), post_url: null } });
           setShowPostUrlPrompt(false);
         }} />
     </div>

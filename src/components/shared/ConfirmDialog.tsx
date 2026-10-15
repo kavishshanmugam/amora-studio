@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -11,38 +12,97 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
+const focusableSelector = [
+  "button:not([disabled])", "[href]", "input:not([disabled])", "select:not([disabled])",
+  "textarea:not([disabled])", "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function useAccessibleDialog(open: boolean, dialogRef: React.RefObject<HTMLDivElement | null>, initialRef: React.RefObject<HTMLElement | null>, onCancel: () => void) {
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const hidden: Array<{ element: HTMLElement; inert: boolean; ariaHidden: string | null }> = [];
+    for (const child of Array.from(document.body.children)) {
+      if (child === dialog || !(child instanceof HTMLElement)) continue;
+      hidden.push({ element: child, inert: child.inert, ariaHidden: child.getAttribute("aria-hidden") });
+      child.inert = true;
+      child.setAttribute("aria-hidden", "true");
+    }
+
+    initialRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      dialog.removeEventListener("keydown", handleKeyDown);
+      for (const item of hidden) {
+        item.element.inert = item.inert;
+        if (item.ariaHidden === null) item.element.removeAttribute("aria-hidden");
+        else item.element.setAttribute("aria-hidden", item.ariaHidden);
+      }
+      openerRef.current?.focus();
+    };
+  }, [dialogRef, initialRef, onCancel, open]);
+}
+
 export function ConfirmDialog({
   open, title, message, confirmLabel = "Confirm", cancelLabel = "Cancel",
   danger, onConfirm, onCancel,
 }: ConfirmDialogProps) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (open) confirmRef.current?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onCancel]);
-
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  useAccessibleDialog(open, dialogRef, cancelRef, onCancel);
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-surface rounded-xl border border-border shadow-xl w-[360px] p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-medium mb-2">{title}</h3>
-        {message && <p className="text-sm text-text-secondary mb-4">{message}</p>}
+  return createPortal(
+    <div
+      ref={dialogRef}
+      role={danger ? "alertdialog" : "dialog"}
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={message ? descriptionId : undefined}
+      tabIndex={-1}
+      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+    >
+      <div className="bg-surface rounded-xl border border-border shadow-xl w-full max-w-[360px] p-5">
+        <h2 id={titleId} className="text-sm font-medium mb-2">{title}</h2>
+        {message && <p id={descriptionId} className="text-sm text-text-secondary mb-4">{message}</p>}
         <div className="flex gap-2 justify-end">
-          <button onClick={onCancel}
+          <button ref={cancelRef} type="button" onClick={onCancel}
             className="text-sm py-2 px-4 rounded-lg border border-border hover:bg-bg transition-colors">
             {cancelLabel}
           </button>
-          <button ref={confirmRef} onClick={onConfirm}
+          <button type="button" onClick={onConfirm}
             className={`text-sm py-2 px-4 rounded-lg text-white transition-colors font-medium ${
               danger ? "bg-danger hover:bg-danger/90" : "bg-brand hover:bg-brand/90"
             }`}>
@@ -50,7 +110,8 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -66,35 +127,34 @@ interface PromptDialogProps {
 export function PromptDialog({
   open, title, placeholder, defaultValue = "", onSubmit, onCancel,
 }: PromptDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 0);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onCancel]);
-
+  const titleId = useId();
+  const inputId = useId();
+  useAccessibleDialog(open, dialogRef, inputRef, onCancel);
   if (!open) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = inputRef.current?.value ?? "";
-    if (val.trim()) onSubmit(val.trim());
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = inputRef.current?.value.trim() ?? "";
+    if (value) onSubmit(value);
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-surface rounded-xl border border-border shadow-xl w-[360px] p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-medium mb-3">{title}</h3>
+  return createPortal(
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+    >
+      <div className="bg-surface rounded-xl border border-border shadow-xl w-full max-w-[360px] p-5">
+        <h2 id={titleId} className="text-sm font-medium mb-3">{title}</h2>
         <form onSubmit={handleSubmit}>
-          <input ref={inputRef} defaultValue={defaultValue} placeholder={placeholder}
+          <label htmlFor={inputId} className="sr-only">{title}</label>
+          <input id={inputId} ref={inputRef} defaultValue={defaultValue} placeholder={placeholder}
             className="w-full text-sm px-3 py-2 border border-border rounded-lg outline-none focus:border-brand bg-surface mb-4" />
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={onCancel}
@@ -108,6 +168,7 @@ export function PromptDialog({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
